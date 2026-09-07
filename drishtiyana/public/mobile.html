@@ -25,6 +25,7 @@
     </div>
     <div class="header-badges">
       <span class="badge badge-primary" id="roomBadge">BUS-101</span>
+      <span class="badge" id="sessionBadge" style="font-size: 0.68rem;">IDLE</span>
     </div>
   </header>
 
@@ -41,39 +42,92 @@
             <circle cx="12" cy="13" r="4"></circle>
           </svg>
         </div>
-        <h3 class="placeholder-title">Camera Standby</h3>
-        <p class="placeholder-desc">Tap "START CAMERA" below to grant camera access and begin live streaming to the laptop edge monitor.</p>
+        <h3 class="placeholder-title">Sensor Standby</h3>
+        <p class="placeholder-desc">Tap <strong>"START BUS SENSOR"</strong> to activate camera, high-precision GPS tracking, and live streaming to edge monitor.</p>
       </div>
 
       <!-- Live Badge on Preview -->
       <div class="video-hud" id="previewHud" style="display: none;">
         <div class="hud-pill">
           <span class="status-dot active"></span>
-          <span>PREVIEW LIVE</span>
+          <span>SENSING ACTIVE</span>
         </div>
       </div>
     </div>
 
-    <!-- Status & Info Card -->
+    <!-- System Status Card -->
     <div class="glass-card" style="padding: 1rem 1.25rem;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-        <span class="status-label">SERVER CONNECTION</span>
+      <!-- Server Connection -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+        <span class="status-label">SERVER</span>
         <span class="badge" id="serverStatusBadge">
           <span class="status-dot" id="serverStatusDot"></span>
           <span id="serverStatusText">CONNECTING...</span>
         </span>
       </div>
 
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <span class="status-label">CAMERA STREAM</span>
+      <!-- Camera Status -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+        <span class="status-label">CAMERA</span>
         <span class="badge badge-offline" id="cameraStatusBadge">
           <span class="status-dot" id="cameraStatusDot"></span>
-          <span id="cameraStatusText">CAMERA: OFFLINE</span>
+          <span id="cameraStatusText">OFFLINE</span>
+        </span>
+      </div>
+
+      <!-- GPS Status -->
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="status-label">GPS TELEMETRY</span>
+        <span class="badge badge-offline" id="gpsStatusBadge">
+          <span class="status-dot" id="gpsStatusDot"></span>
+          <span id="gpsStatusText">IDLE</span>
         </span>
       </div>
     </div>
 
-    <!-- Notification / Error Banner (Hidden by default) -->
+    <!-- Live GPS Coordinates Card -->
+    <div class="glass-card" style="padding: 1rem 1.25rem;">
+      <span class="status-label">REAL-TIME GPS TELEMETRY</span>
+      
+      <div class="telemetry-grid">
+        <div class="telemetry-item">
+          <span class="telemetry-label">LATITUDE</span>
+          <span class="telemetry-val" id="latVal">--</span>
+        </div>
+        <div class="telemetry-item">
+          <span class="telemetry-label">LONGITUDE</span>
+          <span class="telemetry-val" id="lonVal">--</span>
+        </div>
+        <div class="telemetry-item">
+          <span class="telemetry-label">ACCURACY</span>
+          <span class="telemetry-val" id="accVal">--</span>
+        </div>
+        <div class="telemetry-item">
+          <span class="telemetry-label">SPEED</span>
+          <span class="telemetry-val" id="speedVal">--</span>
+        </div>
+      </div>
+
+      <!-- Synchronized Timestamps -->
+      <div class="timestamp-container">
+        <div class="timestamp-box">
+          <span class="timestamp-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            GPS TIME
+          </span>
+          <span class="timestamp-value" id="gpsTimeVal">--:--:--</span>
+        </div>
+        <div class="timestamp-box">
+          <span class="timestamp-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            VIDEO TIME
+          </span>
+          <span class="timestamp-value" id="videoTimeVal">--:--:--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification / Error Banner -->
     <div id="alertBox" class="alert alert-danger" style="display: none;">
       <span id="alertMessage"></span>
     </div>
@@ -84,7 +138,7 @@
         <circle cx="12" cy="12" r="10"></circle>
         <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
       </svg>
-      <span id="startBtnText">START CAMERA</span>
+      <span id="startBtnText">START BUS SENSOR</span>
     </button>
   </main>
 

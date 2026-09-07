@@ -5,8 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DRISHTIYANA - Edge Monitor Station</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Leaflet GIS Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <!-- Socket.IO client served by server -->
   <script src="/socket.io/socket.io.js"></script>
+  <!-- Leaflet GIS Map JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
   <!-- Top Navigation / Header -->
@@ -27,9 +31,14 @@
     
     <div class="header-badges">
       <span class="badge badge-primary" id="busIdBadge">BUS ID: BUS-101</span>
+      <span class="badge" id="sessionBadge">SESSION: IDLE</span>
+      <span class="badge" id="dbStatusBadge">
+        <span class="status-dot" id="dbDot"></span>
+        <span id="dbStatusText">GPS DB: LOCAL</span>
+      </span>
       <span class="badge" id="signalingBadge">
         <span class="status-dot" id="signalingDot"></span>
-        <span id="signalingStatusText">CONNECTING...</span>
+        <span id="signalingStatusText">SERVER: CONNECTING</span>
       </span>
     </div>
   </header>
@@ -37,60 +46,145 @@
   <!-- Main Content Layout -->
   <main class="container">
     <div class="glass-card">
-      <!-- Live Video Monitor Screen -->
-      <div class="monitor-stage">
-        <!-- Live Remote Video Stream -->
-        <video id="remoteVideo" class="monitor-video" autoplay playsinline></video>
+      
+      <!-- Dual Display: Live Video Monitor + Real-Time GIS Map -->
+      <div class="monitor-gis-grid">
+        
+        <!-- Screen 1: Live Video Feed Stage -->
+        <div class="monitor-stage">
+          <!-- Live Remote Video Stream (muted and playsinline ensure browser autoplay never blocks playback) -->
+          <video id="remoteVideo" class="monitor-video" autoplay playsinline muted></video>
 
-        <!-- Standby Placeholder when camera is not broadcasting -->
-        <div class="video-placeholder" id="monitorPlaceholder">
-          <div class="placeholder-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M15 10l5-5v14l-5-5"></path>
-              <rect x="2" y="6" width="13" height="12" rx="2" ry="2"></rect>
-            </svg>
+          <!-- Standby Placeholder when camera is not broadcasting -->
+          <div class="video-placeholder" id="monitorPlaceholder">
+            <div class="placeholder-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M15 10l5-5v14l-5-5"></path>
+                <rect x="2" y="6" width="13" height="12" rx="2" ry="2"></rect>
+              </svg>
+            </div>
+            <h3 class="placeholder-title" id="placeholderStatusTitle">Waiting for Mobile Bus Sensor Stream</h3>
+            <p class="placeholder-desc" id="placeholderStatusDesc">
+              Open the mobile page on your phone (<span style="color: var(--color-primary); font-family: var(--font-mono);">/mobile</span>) and tap <strong>"START BUS SENSOR"</strong> to stream live video and GPS coordinates to this monitor.
+            </p>
           </div>
-          <h3 class="placeholder-title" id="placeholderStatusTitle">Waiting for Mobile Camera Stream</h3>
-          <p class="placeholder-desc" id="placeholderStatusDesc">
-            Open the mobile page on your phone (<span style="color: var(--color-primary); font-family: var(--font-mono);">/mobile</span>) and tap <strong>"START CAMERA"</strong> to stream live to this monitor.
-          </p>
+
+          <!-- Real-time HUD Overlay on Video -->
+          <div class="video-hud" id="monitorHud" style="display: none;">
+            <div class="hud-pill">
+              <span class="status-dot active"></span>
+              <span id="hudBusSession">LIVE &bull; BUS-101</span>
+            </div>
+            <div class="hud-pill" id="resolutionHud">
+              <span>RES: 1280x720</span>
+            </div>
+          </div>
+
+          <!-- Fallback Play button if browser blocks playback -->
+          <button id="unmutePlayBtn" class="hud-action-btn" style="display: none;" title="Click to force play stream">
+            ▶ Play Video Feed
+          </button>
         </div>
 
-        <!-- Real-time HUD Overlay on Video -->
-        <div class="video-hud" id="monitorHud" style="display: none;">
-          <div class="hud-pill">
-            <span class="status-dot active"></span>
-            <span>LIVE FEED &bull; BUS-101</span>
+        <!-- Screen 2: Interactive Real-Time GIS Map -->
+        <div class="gis-map-stage">
+          <!-- Leaflet Map Container -->
+          <div id="busMap"></div>
+
+          <!-- GIS Map HUD Controls -->
+          <div class="gis-map-hud">
+            <div class="hud-pill">
+              <span class="status-dot" id="mapStatusDot"></span>
+              <span id="mapStatusText">GPS: SEARCHING...</span>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button id="recenterMapBtn" class="map-ctrl-btn" title="Center on Bus">
+                🎯 Recenter
+              </button>
+              <button id="toggleFollowBtn" class="map-ctrl-btn active" title="Toggle Auto-follow">
+                🛰 Follow: ON
+              </button>
+            </div>
           </div>
-          <div class="hud-pill" id="resolutionHud">
-            <span>RES: 1280x720</span>
+        </div>
+
+      </div>
+
+      <!-- Real-Time Synchronized Timestamps -->
+      <div class="timestamp-container" style="margin-top: 1.25rem;">
+        <div class="timestamp-box">
+          <span class="timestamp-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            VIDEO TIME (UTC)
+          </span>
+          <span class="timestamp-value" id="videoTimeVal">----:--:-- --:--:--</span>
+        </div>
+        <div class="timestamp-box">
+          <span class="timestamp-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            GPS TIME (UTC)
+          </span>
+          <span class="timestamp-value" id="gpsTimeVal">----:--:-- --:--:--</span>
+        </div>
+      </div>
+
+      <!-- Real-Time GPS Telemetry Cards -->
+      <div style="margin-top: 1.25rem;">
+        <span class="status-label">MOBILE BUS TELEMETRY (LIVE GIS DATA)</span>
+        <div class="telemetry-grid">
+          <div class="telemetry-item">
+            <span class="telemetry-label">LATITUDE</span>
+            <span class="telemetry-val" id="latVal" style="color: var(--color-primary);">--</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">LONGITUDE</span>
+            <span class="telemetry-val" id="lonVal" style="color: var(--color-primary);">--</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">ACCURACY</span>
+            <span class="telemetry-val" id="accVal">--</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">SPEED</span>
+            <span class="telemetry-val" id="speedVal">--</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">HEADING</span>
+            <span class="telemetry-val" id="headingVal">--</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">SYNC LAG</span>
+            <span class="telemetry-val" id="syncLagVal" style="font-size: 0.85rem;">-- ms</span>
           </div>
         </div>
       </div>
 
       <!-- Status Metrics Bar -->
       <div class="status-grid">
-        <!-- Session ID Card -->
+        <!-- Video Stream State -->
         <div class="status-card">
-          <span class="status-label">ASSIGNED BUS ID</span>
-          <span class="status-value" style="color: var(--color-primary);">BUS-101</span>
+          <span class="status-label">VIDEO STREAM</span>
+          <span class="status-value" id="videoStatusVal">
+            <span class="status-dot" id="videoDot"></span>
+            <span id="videoText">OFFLINE</span>
+          </span>
+        </div>
+
+        <!-- GPS Telemetry State -->
+        <div class="status-card">
+          <span class="status-label">GPS TELEMETRY</span>
+          <span class="status-value" id="gpsStatusVal">
+            <span class="status-dot" id="gpsDot"></span>
+            <span id="gpsText">OFFLINE</span>
+          </span>
         </div>
 
         <!-- Connection State Card -->
         <div class="status-card">
-          <span class="status-label">SYSTEM CONNECTION</span>
+          <span class="status-label">SERVER CONNECTION</span>
           <span class="status-value" id="connStatusVal">
             <span class="status-dot" id="connDot"></span>
             <span id="connText">CONNECTING...</span>
-          </span>
-        </div>
-
-        <!-- Camera Status Card -->
-        <div class="status-card">
-          <span class="status-label">CAMERA STATUS</span>
-          <span class="status-value" id="camStatusVal">
-            <span class="status-dot" id="camDot"></span>
-            <span id="camText">OFFLINE</span>
           </span>
         </div>
 
