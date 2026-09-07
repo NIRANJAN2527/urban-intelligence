@@ -86,15 +86,48 @@ CREATE INDEX IF NOT EXISTS idx_gps_locations_source_type ON gps_locations(source
 ALTER TABLE bus_sessions ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT 'LIVE';
 ALTER TABLE bus_sessions ADD COLUMN IF NOT EXISTS video_filename TEXT;
 ALTER TABLE gps_locations ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT 'LIVE';
+
+-- 3. Table: pothole_events (Edge AI Evidence)
+CREATE TABLE IF NOT EXISTS pothole_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id TEXT UNIQUE NOT NULL,
+    session_id TEXT NOT NULL,
+    bus_id TEXT NOT NULL,
+    camera_id TEXT DEFAULT 'CAM-01',
+    frame_id INTEGER,
+    video_timestamp TIMESTAMPTZ,
+    processing_timestamp TIMESTAMPTZ DEFAULT NOW(),
+    confidence DOUBLE PRECISION NOT NULL,
+    class_name TEXT DEFAULT 'Pothole',
+    bbox_x1 INTEGER,
+    bbox_y1 INTEGER,
+    bbox_x2 INTEGER,
+    bbox_y2 INTEGER,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    gps_timestamp TIMESTAMPTZ,
+    gps_accuracy DOUBLE PRECISION,
+    timestamp_difference_ms INTEGER,
+    gps_match_status TEXT,
+    evidence_image_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
 ---
 
 ## How to Run the Project
 
+### 1. Start Node.js Server
 ```powershell
 cd drishtiyana/server
 npm start
+```
+
+### 2. Start Python Edge AI Service
+```powershell
+cd drishtiyana/edge_ai
+python edge_service.py
 ```
 
 Open in your laptop browser:
@@ -102,11 +135,21 @@ Open in your laptop browser:
 
 ---
 
-## Testing Mode 1: Live Bus Sensor
+## Testing Mode 1: Live Bus Sensor & Edge AI Processing
 
 1. On laptop, ensure **`[ 🟢 LIVE BUS SENSOR ]`** is selected.
 2. On phone (same Wi-Fi), open `https://<YOUR_LAPTOP_IP>:3001/mobile` and tap **"START BUS SENSOR"**.
 3. Live camera and real-time GPS update on the laptop monitor and GIS map.
+4. On laptop monitor, click **`[ ⚡ START EDGE PROCESSING ]`**:
+   - The live video stream continues smoothly at full 30 FPS without stutter or interruption.
+   - Offscreen canvas captures frames at 5 FPS and sends them to the Python Edge AI service.
+   - Preprocessing applies automatic brightness correction, CLAHE, and sharpening.
+   - Pretrained YOLOv8 (`best.pt`) detects road potholes and filters with confidence $\ge 0.80$.
+   - Redis retains the best-scoring candidate within a 30-second TTL window.
+   - The detected frame's video timestamp is correlated with nearest GPS telemetry ($\le 2000\text{ ms}$).
+   - The verified evidence frame and structured event are dispatched to the backend and displayed in the **Latest Edge Event Evidence** panel!
+5. Click **`[ ⏹ STOP EDGE PROCESSING ]`**:
+   - AI processing halts immediately while live WebRTC video and GPS tracking continue running uninterrupted.
 
 ---
 

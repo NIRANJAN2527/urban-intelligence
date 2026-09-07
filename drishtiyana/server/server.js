@@ -18,11 +18,15 @@ app.use(express.json({ limit: '50mb' }));
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
+const evidenceDir = path.join(uploadsDir, 'evidence');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+if (!fs.existsSync(evidenceDir)) {
+  fs.mkdirSync(evidenceDir, { recursive: true });
+}
 
-// Serve uploaded videos as static streaming media
+// Serve uploaded videos and evidence images as static streaming media
 app.use('/uploads', express.static(uploadsDir));
 
 // Serve static frontend files from public/
@@ -57,6 +61,22 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 500 * 1024 * 1024 } // 500 MB limit
+});
+
+// Configure Multer for Edge AI Evidence Images
+const evidenceStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, evidenceDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    cb(null, `evidence-${Date.now()}-${Math.floor(100 + Math.random() * 900)}${ext}`);
+  }
+});
+
+const uploadEvidence = multer({
+  storage: evidenceStorage,
+  limits: { fileSize: 20 * 1024 * 1024 } // 20 MB limit
 });
 
 // Helper: Parse and validate CSV formatted GPS data
@@ -307,6 +327,93 @@ app.get('/api/session-gps/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
   const result = await supabase.getSessionGpsLocations(sessionId);
   res.json(result);
+});
+
+// ==============================================================================
+// EDGE AI EVENT EVIDENCE SUBMISSION API
+// ==============================================================================
+
+// POST /api/edge/events: Receives verified pothole detection event with correlated GPS & evidence image
+app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req, res) => {
+  try {
+    const {
+      event_id,
+      event_type,
+      session_id,
+      bus_id,
+      camera_id,
+      frame_id,
+      video_timestamp,
+      processing_timestamp,
+      confidence,
+      class_name,
+      bbox_x1,
+      bbox_y1,
+      bbox_x2,
+      bbox_y2,
+      latitude,
+      longitude,
+      gps_timestamp,
+      gps_accuracy,
+      timestamp_difference_ms,
+      gps_match_status
+    } = req.body;
+
+    const evidenceImageUrl = req.file ? `/uploads/evidence/${req.file.filename}` : null;
+
+    const eventRecord = {
+      event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      session_id: session_id || 'UNKNOWN',
+      bus_id: bus_id || 'BUS-101',
+      camera_id: camera_id || 'CAM-01',
+      frame_id: frame_id ? parseInt(frame_id, 10) : null,
+      video_timestamp: video_timestamp || null,
+      processing_timestamp: processing_timestamp || new Date().toISOString(),
+      confidence: confidence ? parseFloat(confidence) : 0.0,
+      class_name: class_name || 'Pothole',
+      bbox_x1: bbox_x1 ? parseInt(bbox_x1, 10) : null,
+      bbox_y1: bbox_y1 ? parseInt(bbox_y1, 10) : null,
+      bbox_x2: bbox_x2 ? parseInt(bbox_x2, 10) : null,
+      bbox_y2: bbox_y2 ? parseInt(bbox_y2, 10) : null,
+      latitude: latitude && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null,
+      longitude: longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null,
+      gps_timestamp: gps_timestamp || null,
+      gps_accuracy: gps_accuracy && !isNaN(parseFloat(gps_accuracy)) ? parseFloat(gps_accuracy) : null,
+      timestamp_difference_ms: timestamp_difference_ms && !isNaN(parseInt(timestamp_difference_ms, 10)) ? parseInt(timestamp_difference_ms, 10) : null,
+      gps_match_status: gps_match_status || 'UNCHECKED',
+      evidence_image_url: evidenceImageUrl
+    };
+
+    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}%`);
+    console.log(`  Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
+    console.log(`  GPS: (${eventRecord.latitude}, ${eventRecord.longitude}) | Match: ${eventRecord.gps_match_status} (delta: ${eventRecord.timestamp_difference_ms} ms)`);
+    if (evidenceImageUrl) {
+      console.log(`  Evidence Image: ${evidenceImageUrl}`);
+    }
+
+    // Persist to Supabase if configured
+    let dbSaved = false;
+    if (supabase.isSupabaseConfigured()) {
+      const dbRes = await supabase.insertPotholeEvent(eventRecord);
+      dbSaved = dbRes.success;
+    }
+
+    // Broadcast event to connected laptop monitors
+    const targetRoom = eventRecord.bus_id || 'BUS-101';
+    io.to(targetRoom).emit('edge-event-detected', eventRecord);
+    io.emit('edge-event-detected', eventRecord);
+
+    return res.status(200).json({
+      success: true,
+      event_id: eventRecord.event_id,
+      evidence_image_url: evidenceImageUrl,
+      dbSaved,
+      dbConfigured: supabase.isSupabaseConfigured()
+    });
+  } catch (err) {
+    console.error('[API ERROR] /api/edge/events:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ==============================================================================

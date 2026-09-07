@@ -205,6 +205,97 @@
           <span class="status-value" id="p2pStatusVal" style="font-size: 0.95rem;">STANDBY</span>
         </div>
       </div>
+
+      <!-- ================================================================== -->
+      <!-- EDGE AI PROCESSING SECTION (LIVE MODE)                             -->
+      <!-- ================================================================== -->
+      <div class="edge-ai-card" style="margin-top: 1.5rem;">
+        <div class="edge-ai-header">
+          <div class="edge-ai-title-group">
+            <div class="edge-ai-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </div>
+            <div>
+              <h3 class="edge-ai-title">EDGE AI PROCESSING</h3>
+              <p class="edge-ai-desc">Real-time OpenCV enhancement &bull; YOLOv8 pothole detection &bull; Redis 30s best candidate &bull; GPS sync</p>
+            </div>
+          </div>
+          
+          <!-- Edge AI Control Buttons -->
+          <div style="display: flex; gap: 0.75rem; align-items: center;">
+            <button id="startEdgeBtn" class="btn btn-primary" style="width: auto; padding: 0.55rem 1.25rem; font-size: 0.85rem;" type="button">
+              ⚡ START EDGE PROCESSING
+            </button>
+            <button id="stopEdgeBtn" class="btn btn-danger" style="width: auto; padding: 0.55rem 1.25rem; font-size: 0.85rem; display: none;" type="button">
+              ⏹ STOP EDGE PROCESSING
+            </button>
+          </div>
+        </div>
+
+        <!-- Edge AI Status Pills -->
+        <div class="edge-ai-badges" style="margin-top: 1rem;">
+          <span class="badge" id="aiStatusBadge">
+            <span class="status-dot" id="aiStatusDot"></span>
+            <span id="aiStatusText">EDGE AI: STANDBY</span>
+          </span>
+          <span class="badge badge-primary">MODEL: POTHOLE YOLOv8 (best.pt)</span>
+          <span class="badge">CONFIDENCE THRESHOLD: &ge; 80%</span>
+          <span class="badge">PROCESSING: 5 FPS</span>
+        </div>
+
+        <!-- Edge AI Metrics Grid -->
+        <div class="edge-metrics-grid" style="margin-top: 1rem;">
+          <div class="telemetry-item">
+            <span class="telemetry-label">FRAMES PROCESSED</span>
+            <span class="telemetry-val" id="aiFramesVal">0</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">POTHOLES DETECTED</span>
+            <span class="telemetry-val" id="aiDetectionsVal">0</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">ACCEPTED (&ge;80%)</span>
+            <span class="telemetry-val" id="aiAcceptedVal" style="color: var(--color-primary);">0</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">BEST CONFIDENCE</span>
+            <span class="telemetry-val" id="aiBestConfVal">0.0%</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">AI LATENCY / FPS</span>
+            <span class="telemetry-val" id="aiLatencyVal">-- ms</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">REDIS 30s CACHE</span>
+            <span class="telemetry-val" id="aiRedisStatusVal" style="font-size: 0.82rem; color: var(--color-live);">READY</span>
+          </div>
+        </div>
+
+        <!-- Latest Edge Event Evidence Panel -->
+        <div id="aiEvidenceBox" class="edge-evidence-panel" style="margin-top: 1.25rem; display: none;">
+          <div class="edge-evidence-preview">
+            <img id="aiEvidenceImg" src="" alt="Annotated Pothole Frame" class="edge-evidence-thumbnail">
+            <div class="edge-evidence-tag">LATEST BEST DETECTION</div>
+          </div>
+          <div class="edge-evidence-info">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span class="badge badge-live" id="aiEvidenceConfBadge">POTHOLE 95%</span>
+              <span class="badge badge-primary" id="aiEvidenceServerBadge">SENT TO SERVER</span>
+            </div>
+            <div class="edge-evidence-details" style="margin-top: 0.75rem;">
+              <div><strong>Event ID:</strong> <span id="aiEvtIdVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Frame ID:</strong> <span id="aiEvtFrameVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Video Time:</strong> <span id="aiEvtVideoTimeVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Correlated GPS:</strong> <span id="aiEvtGpsVal" style="color: var(--color-primary); font-family: var(--font-mono); font-weight: 700;">--</span></div>
+              <div><strong>GPS Match Delta:</strong> <span id="aiEvtGpsDeltaVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Status:</strong> <span id="aiEvtMatchStatusVal" style="color: var(--color-live); font-weight: 700;">GPS MATCHED</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
 
 

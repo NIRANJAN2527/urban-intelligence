@@ -67,6 +67,33 @@ const viewerAlert = document.getElementById('viewerAlert');
 const viewerAlertText = document.getElementById('viewerAlertText');
 
 // ==============================================================================
+// DOM ELEMENTS - EDGE AI PROCESSING
+// ==============================================================================
+const startEdgeBtn = document.getElementById('startEdgeBtn');
+const stopEdgeBtn = document.getElementById('stopEdgeBtn');
+const aiStatusBadge = document.getElementById('aiStatusBadge');
+const aiStatusDot = document.getElementById('aiStatusDot');
+const aiStatusText = document.getElementById('aiStatusText');
+
+const aiFramesVal = document.getElementById('aiFramesVal');
+const aiDetectionsVal = document.getElementById('aiDetectionsVal');
+const aiAcceptedVal = document.getElementById('aiAcceptedVal');
+const aiBestConfVal = document.getElementById('aiBestConfVal');
+const aiLatencyVal = document.getElementById('aiLatencyVal');
+const aiRedisStatusVal = document.getElementById('aiRedisStatusVal');
+
+const aiEvidenceBox = document.getElementById('aiEvidenceBox');
+const aiEvidenceImg = document.getElementById('aiEvidenceImg');
+const aiEvidenceConfBadge = document.getElementById('aiEvidenceConfBadge');
+const aiEvidenceServerBadge = document.getElementById('aiEvidenceServerBadge');
+const aiEvtIdVal = document.getElementById('aiEvtIdVal');
+const aiEvtFrameVal = document.getElementById('aiEvtFrameVal');
+const aiEvtVideoTimeVal = document.getElementById('aiEvtVideoTimeVal');
+const aiEvtGpsVal = document.getElementById('aiEvtGpsVal');
+const aiEvtGpsDeltaVal = document.getElementById('aiEvtGpsDeltaVal');
+const aiEvtMatchStatusVal = document.getElementById('aiEvtMatchStatusVal');
+
+// ==============================================================================
 // DOM ELEMENTS - MODE 2: FILE UPLOAD
 // ==============================================================================
 const uploadSetupCard = document.getElementById('uploadSetupCard');
@@ -130,6 +157,17 @@ let routePolyline = null;
 let isFollowBusEnabled = true;
 let hasFirstGpsFix = false;
 let currentBusCoords = null;
+
+// Edge AI State
+let isEdgeAiActive = false;
+let edgeAiInterval = null;
+let edgeFrameCounter = 0;
+const EDGE_PROCESSING_FPS = 5;
+let edgeProcessingLock = false;
+let recentGpsBuffer = [];
+let edgeAcceptedCount = 0;
+let edgeTotalDetections = 0;
+let edgeBestConfidence = 0.0;
 
 // Mode 2 State
 let selectedVideoFile = null;
@@ -365,6 +403,7 @@ function initSignaling() {
   });
 
   socket.on('gps-update', (data) => handleLiveGpsUpdate(data));
+  socket.on('edge-event-detected', (eventData) => handleEdgeEventDetected(eventData));
 
   socket.on('offer', async ({ sdp }) => {
     hideAlert();
@@ -414,6 +453,12 @@ function handleLiveGpsUpdate(data) {
 
   latestGpsTimestampMs = new Date(gps_timestamp).getTime();
   gpsTimeVal.textContent = formatUtcFull(gps_timestamp);
+
+  // Store in circular buffer for Edge AI video-to-GPS correlation
+  recentGpsBuffer.push(data);
+  if (recentGpsBuffer.length > 60) {
+    recentGpsBuffer.shift();
+  }
 
   setGpsStatus(true, 'LIVE');
   if (dbConfigured !== undefined) updateDbStatus(dbConfigured);
@@ -989,7 +1034,220 @@ function initUploadGisMap(records) {
 }
 
 // ==============================================================================
-// 5. INITIALIZATION ON DOM READY
+// 6. EDGE AI PROCESSING (OPENCV + YOLO + REDIS + GPS CORRELATION)
+// ==============================================================================
+
+async function checkEdgeServiceHealth() {
+  try {
+    const res = await fetch('http://localhost:5001/api/edge/health', { method: 'GET' });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, data };
+    }
+  } catch (err) {
+    // Service offline
+  }
+  return { ok: false };
+}
+
+async function startEdgeProcessing() {
+  // Check if live video is streaming
+  if (!remoteVideo || remoteVideo.readyState < 2 || remoteVideo.paused) {
+    showAlert('Please connect and start the mobile bus camera stream first before activating Edge AI processing.', 'warning');
+    return;
+  }
+
+  // Probe Edge AI Python service on port 5001
+  const health = await checkEdgeServiceHealth();
+  if (!health.ok) {
+    showAlert('Python Edge AI Service is not responding on port 5001. Please run: "python drishtiyana/edge_ai/edge_service.py"', 'danger');
+    if (aiStatusBadge) {
+      aiStatusBadge.className = 'badge badge-offline';
+      aiStatusDot.className = 'status-dot';
+      aiStatusText.textContent = 'EDGE AI: SERVICE OFFLINE';
+    }
+    return;
+  }
+
+  isEdgeAiActive = true;
+  edgeFrameCounter = 0;
+  edgeAcceptedCount = 0;
+  edgeTotalDetections = 0;
+  edgeBestConfidence = 0.0;
+
+  if (startEdgeBtn) startEdgeBtn.style.display = 'none';
+  if (stopEdgeBtn) stopEdgeBtn.style.display = 'inline-flex';
+
+  if (aiStatusBadge) {
+    aiStatusBadge.className = 'badge badge-live';
+    aiStatusDot.className = 'status-dot active';
+    aiStatusText.textContent = 'EDGE AI: ACTIVE';
+  }
+
+  if (aiFramesVal) aiFramesVal.textContent = '0';
+  if (aiDetectionsVal) aiDetectionsVal.textContent = '0';
+  if (aiAcceptedVal) aiAcceptedVal.textContent = '0';
+  if (aiBestConfVal) aiBestConfVal.textContent = '0.0%';
+
+  const intervalMs = Math.round(1000 / EDGE_PROCESSING_FPS); // ~200 ms for 5 FPS
+  edgeAiInterval = setInterval(captureAndProcessEdgeFrame, intervalMs);
+  showAlert('Edge AI Processing is now ACTIVE at 5 FPS! Incoming live video frames are processed in parallel with zero stream disruption.', 'info');
+}
+
+function stopEdgeProcessing() {
+  isEdgeAiActive = false;
+  if (edgeAiInterval) {
+    clearInterval(edgeAiInterval);
+    edgeAiInterval = null;
+  }
+
+  if (startEdgeBtn) startEdgeBtn.style.display = 'inline-flex';
+  if (stopEdgeBtn) stopEdgeBtn.style.display = 'none';
+
+  if (aiStatusBadge) {
+    aiStatusBadge.className = 'badge';
+    aiStatusDot.className = 'status-dot';
+    aiStatusText.textContent = 'EDGE AI: STANDBY';
+  }
+
+  showAlert('Edge AI processing stopped. Live camera video and GPS tracking remain active.', 'info');
+}
+
+async function captureAndProcessEdgeFrame() {
+  if (!isEdgeAiActive || edgeProcessingLock) return;
+  if (!remoteVideo || remoteVideo.readyState < 2 || remoteVideo.paused) return;
+
+  edgeProcessingLock = true;
+
+  try {
+    edgeFrameCounter++;
+    const frameId = edgeFrameCounter;
+
+    // Use offscreen canvas for zero impact on remoteVideo playback
+    const offscreen = document.createElement('canvas');
+    offscreen.width = remoteVideo.videoWidth || 1280;
+    offscreen.height = remoteVideo.videoHeight || 720;
+    const ctx = offscreen.getContext('2d');
+    ctx.drawImage(remoteVideo, 0, 0, offscreen.width, offscreen.height);
+
+    // Live frame timestamp (UTC ISO string)
+    const frameTimeIso = new Date().toISOString();
+
+    offscreen.toBlob(async (blob) => {
+      if (!blob) {
+        edgeProcessingLock = false;
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('frame', blob, `frame-${frameId}.jpg`);
+        formData.append('session_id', currentSessionId || 'SESSION-LIVE');
+        formData.append('bus_id', ROOM_ID);
+        formData.append('camera_id', 'CAM-01');
+        formData.append('frame_id', frameId.toString());
+        formData.append('video_timestamp', frameTimeIso);
+        formData.append('gps_records', JSON.stringify(recentGpsBuffer));
+
+        const res = await fetch('http://localhost:5001/api/edge/process-frame', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          handleEdgeFrameResult(data);
+        }
+      } catch (err) {
+        console.warn('[Edge Processing Fetch Warning]:', err.message);
+      } finally {
+        edgeProcessingLock = false;
+      }
+    }, 'image/jpeg', 0.85);
+
+  } catch (err) {
+    console.error('[Capture Frame Error]', err);
+    edgeProcessingLock = false;
+  }
+}
+
+function handleEdgeFrameResult(data) {
+  if (aiFramesVal) aiFramesVal.textContent = data.frame_id;
+  if (aiLatencyVal) aiLatencyVal.textContent = `${data.processing_time_ms} ms (${data.fps_achievable} FPS)`;
+
+  if (data.detections_count > 0) {
+    edgeTotalDetections += data.detections_count;
+    if (aiDetectionsVal) aiDetectionsVal.textContent = edgeTotalDetections;
+  }
+
+  if (data.accepted_count > 0) {
+    edgeAcceptedCount += data.accepted_count;
+    if (aiAcceptedVal) aiAcceptedVal.textContent = edgeAcceptedCount;
+
+    if (data.best_confidence > edgeBestConfidence) {
+      edgeBestConfidence = data.best_confidence;
+      if (aiBestConfVal) aiBestConfVal.textContent = `${(edgeBestConfidence * 100).toFixed(1)}%`;
+    }
+  }
+
+  // Update latest event evidence panel
+  if (data.latest_event && data.annotated_frame_base64) {
+    handleEdgeEventDetected(data.latest_event, data.annotated_frame_base64);
+  }
+}
+
+function handleEdgeEventDetected(eventRecord, base64Image = null) {
+  if (!aiEvidenceBox) return;
+  aiEvidenceBox.style.display = 'grid';
+
+  if (base64Image) {
+    aiEvidenceImg.src = `data:image/jpeg;base64,${base64Image}`;
+  } else if (eventRecord.evidence_image_url) {
+    aiEvidenceImg.src = eventRecord.evidence_image_url;
+  }
+
+  const confPct = Math.round((eventRecord.confidence || 0) * 100);
+  if (aiEvidenceConfBadge) aiEvidenceConfBadge.textContent = `${eventRecord.class_name || 'POTHOLE'} ${confPct}%`;
+  if (aiEvidenceServerBadge) aiEvidenceServerBadge.textContent = eventRecord.server_status || 'SENT TO SERVER';
+
+  if (aiEvtIdVal) aiEvtIdVal.textContent = eventRecord.event_id || '--';
+  if (aiEvtFrameVal) aiEvtFrameVal.textContent = eventRecord.frame_id || '--';
+  if (aiEvtVideoTimeVal) aiEvtVideoTimeVal.textContent = eventRecord.video_timestamp ? eventRecord.video_timestamp.slice(11, 23) + ' UTC' : '--';
+
+  if (eventRecord.gps && eventRecord.gps.latitude) {
+    if (aiEvtGpsVal) aiEvtGpsVal.textContent = `${eventRecord.gps.latitude.toFixed(6)}, ${eventRecord.gps.longitude.toFixed(6)}`;
+    if (aiEvtGpsDeltaVal) aiEvtGpsDeltaVal.textContent = `\u00B1${eventRecord.gps.timestamp_difference_ms} ms`;
+    if (aiEvtMatchStatusVal) {
+      aiEvtMatchStatusVal.textContent = eventRecord.gps.gps_match_status || 'GPS MATCHED';
+      aiEvtMatchStatusVal.style.color = eventRecord.gps.gps_match_status === 'GPS MATCHED' ? 'var(--color-live)' : 'var(--color-warning)';
+    }
+  } else if (eventRecord.latitude) {
+    if (aiEvtGpsVal) aiEvtGpsVal.textContent = `${Number(eventRecord.latitude).toFixed(6)}, ${Number(eventRecord.longitude).toFixed(6)}`;
+    if (aiEvtGpsDeltaVal) aiEvtGpsDeltaVal.textContent = eventRecord.timestamp_difference_ms ? `\u00B1${eventRecord.timestamp_difference_ms} ms` : '--';
+    if (aiEvtMatchStatusVal) {
+      aiEvtMatchStatusVal.textContent = eventRecord.gps_match_status || 'GPS MATCHED';
+      aiEvtMatchStatusVal.style.color = eventRecord.gps_match_status === 'GPS MATCHED' ? 'var(--color-live)' : 'var(--color-warning)';
+    }
+  } else {
+    if (aiEvtGpsVal) aiEvtGpsVal.textContent = 'NO GPS DATA';
+    if (aiEvtGpsDeltaVal) aiEvtGpsDeltaVal.textContent = '--';
+    if (aiEvtMatchStatusVal) {
+      aiEvtMatchStatusVal.textContent = 'NO_CLOSE_MATCH';
+      aiEvtMatchStatusVal.style.color = 'var(--color-offline)';
+    }
+  }
+}
+
+// Bind Edge AI Buttons
+if (startEdgeBtn) {
+  startEdgeBtn.addEventListener('click', startEdgeProcessing);
+}
+if (stopEdgeBtn) {
+  stopEdgeBtn.addEventListener('click', stopEdgeProcessing);
+}
+
+// ==============================================================================
+// 7. INITIALIZATION ON DOM READY
 // ==============================================================================
 window.addEventListener('DOMContentLoaded', () => {
   initLiveGisMap();

@@ -181,11 +181,37 @@ async function getSessionGpsLocations(session_id) {
   }
 }
 
+/**
+ * Insert a verified Edge AI pothole detection event
+ */
+async function insertPotholeEvent(eventData) {
+  if (!isSupabaseConfigured()) {
+    return { success: false, reason: 'unconfigured' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('pothole_events')
+      .insert([eventData]);
+
+    if (error) {
+      console.warn('[Supabase] Failed to insert pothole event:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (err) {
+    console.error('[Supabase Exception] insertPotholeEvent:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   isSupabaseConfigured,
   createSession,
   endSession,
   insertGpsLocation,
   insertGpsLocationsBulk,
-  getSessionGpsLocations
+  getSessionGpsLocations,
+  insertPotholeEvent
 };

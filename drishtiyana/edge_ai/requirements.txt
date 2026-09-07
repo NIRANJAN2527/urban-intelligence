@@ -1,0 +1,11 @@
+# DRISHTIYANA - Python Edge AI Dependencies
+opencv-python>=4.10.0
+ultralytics>=8.4.0
+torch>=2.0.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+python-multipart>=0.0.9
+redis>=5.0.0
+fakeredis>=2.20.0
+requests>=2.30.0
+numpy>=1.24.0
