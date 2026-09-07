@@ -143,23 +143,23 @@ def run_test_4():
 
 
 def run_test_5():
-    print("\n[TEST 5] Pothole disappears for > 2 seconds (finalization)...")
-    manager = RedisCandidateManager(candidate_gap_seconds=2.0)
+    print("\n[TEST 5] Pothole disappears for > 3 seconds (finalization)...")
+    manager = RedisCandidateManager(candidate_gap_seconds=3.0)
     session_id = f"TEST5-SESSION-{int(time.time()*1000)}"
     dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
     det = {"confidence": 0.89, "class_name": "Pothole", "bbox": {"x1": 100, "y1": 100, "x2": 200, "y2": 200}}
     manager.process_detection(session_id, "BUS-101", "CAM-01", 1, "2026-09-08T10:03:00.000Z", "2026-09-08T10:03:00.000Z", det, {}, dummy_frame, current_time=400.0)
 
-    # Within gap (1.5s): not finalized
-    unexpired = manager.get_and_finalize_expired_candidates(session_id, current_time=401.5)
-    assert len(unexpired) == 0, "Candidate should remain active within 2.0s gap"
+    # Within gap (2.0s): not finalized
+    unexpired = manager.get_and_finalize_expired_candidates(session_id, current_time=402.0)
+    assert len(unexpired) == 0, "Candidate should remain active within 3.0s gap"
 
-    # Past gap (2.2s): finalized
-    expired = manager.get_and_finalize_expired_candidates(session_id, current_time=402.2)
-    assert len(expired) == 1, "Candidate must finalize after > 2.0s gap"
+    # Past gap (3.2s): finalized
+    expired = manager.get_and_finalize_expired_candidates(session_id, current_time=403.2)
+    assert len(expired) == 1, "Candidate must finalize after > 3.0s gap"
     assert expired[0]["status"] == "FINALIZED"
-    print(f"   [PASS] Candidate finalized after 2.2s gap (status={expired[0]['status']})")
+    print(f"   [PASS] Candidate finalized after 3.2s gap (status={expired[0]['status']})")
 
 
 def run_test_6():

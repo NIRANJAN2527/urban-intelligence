@@ -137,6 +137,13 @@ def async_server_dispatch_worker():
                 session_metrics["total_final_events_sent"] += 1
                 print(f"[SERVER] Final event sent: {event_id} (confidence={float(data['confidence']):.2f}, observations={data['observation_count']})")
                 print(f"[DB] Event saved: {event_id}")
+
+                # Clean up temporary candidate frame now that server has permanently stored it
+                if evidence_path and os.path.exists(evidence_path):
+                    try:
+                        os.remove(evidence_path)
+                    except Exception:
+                        pass
             else:
                 server_connection_status = "ERROR"
                 session_metrics["server_status"] = "ERROR"

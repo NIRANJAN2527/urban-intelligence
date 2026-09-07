@@ -20,7 +20,7 @@ import numpy as np
 # Configurable thresholds
 SAME_POTHOLE_IOU_THRESHOLD = float(os.environ.get("SAME_POTHOLE_IOU_THRESHOLD", 0.30))
 SAME_POTHOLE_CENTER_DISTANCE = float(os.environ.get("SAME_POTHOLE_CENTER_DISTANCE", 100.0))  # pixels
-POTHOLE_CANDIDATE_GAP_SECONDS = float(os.environ.get("POTHOLE_CANDIDATE_GAP_SECONDS", 2.0))  # gap for finalization
+POTHOLE_CANDIDATE_GAP_SECONDS = float(os.environ.get("POTHOLE_CANDIDATE_GAP_SECONDS", 3.0))  # configurable candidate gap (~3s)
 REDIS_CANDIDATE_TTL_SECONDS = int(os.environ.get("REDIS_CANDIDATE_TTL_SECONDS", 30))  # sliding TTL for Redis
 
 # Redis connection parameters
