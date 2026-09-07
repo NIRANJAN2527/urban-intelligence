@@ -53,6 +53,11 @@ CREATE INDEX IF NOT EXISTS idx_gps_locations_source_type ON gps_locations(source
 CREATE TABLE IF NOT EXISTS pothole_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id TEXT UNIQUE NOT NULL,
+    candidate_id TEXT,
+    observation_count INTEGER DEFAULT 1,
+    risk_score INTEGER,
+    risk_level TEXT,
+    priority TEXT,
     session_id TEXT NOT NULL,
     bus_id TEXT NOT NULL,
     camera_id TEXT DEFAULT 'CAM-01',
@@ -78,6 +83,8 @@ CREATE TABLE IF NOT EXISTS pothole_events (
 CREATE INDEX IF NOT EXISTS idx_pothole_events_session ON pothole_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_bus ON pothole_events(bus_id);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_created ON pothole_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
 
 -- ==============================================================================
 -- Migration statements if tables already exist:
@@ -85,4 +92,11 @@ CREATE INDEX IF NOT EXISTS idx_pothole_events_created ON pothole_events(created_
 ALTER TABLE bus_sessions ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT 'LIVE';
 ALTER TABLE bus_sessions ADD COLUMN IF NOT EXISTS video_filename TEXT;
 ALTER TABLE gps_locations ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT 'LIVE';
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS candidate_id TEXT;
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS observation_count INTEGER DEFAULT 1;
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS risk_score INTEGER;
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS risk_level TEXT;
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS priority TEXT;
+CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
 

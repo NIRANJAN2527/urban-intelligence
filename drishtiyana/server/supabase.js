@@ -193,6 +193,11 @@ async function insertPotholeEvent(eventData) {
     // Filter to known database columns from schema.sql
     const dbPayload = {
       event_id: eventData.event_id,
+      candidate_id: eventData.candidate_id || null,
+      observation_count: eventData.observation_count || 1,
+      risk_score: eventData.risk_score !== undefined ? eventData.risk_score : null,
+      risk_level: eventData.risk_level || null,
+      priority: eventData.priority || null,
       session_id: eventData.session_id,
       bus_id: eventData.bus_id,
       camera_id: eventData.camera_id || 'CAM-01',

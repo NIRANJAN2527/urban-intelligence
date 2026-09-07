@@ -30,6 +30,7 @@ from enhancement import enhance_frame
 from detector import PotholeDetector, POTHOLE_CONFIDENCE_THRESHOLD, DEFAULT_MODEL_PATH
 from redis_tracker import RedisCandidateManager
 from gps_matcher import get_gps_for_video_timestamp, parse_timestamp_to_ms
+from risk_assessment import calculate_pothole_risk
 
 # Node.js backend endpoint for submitting finalized events
 NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "http://127.0.0.1:3000")
@@ -87,6 +88,12 @@ def async_server_dispatch_worker():
         cand_id = candidate.get("candidate_id", "CAND000")
         event_id = f"EVT-{session_id}-{cand_id}"
 
+        # Evaluate deterministic Risk Score & Priority
+        risk_data = calculate_pothole_risk(candidate)
+        candidate["risk_score"] = risk_data["risk_score"]
+        candidate["risk_level"] = risk_data["risk_level"]
+        candidate["priority"] = risk_data["priority"]
+
         # Prepare multipart payload
         evidence_path = candidate.get("best_frame_path")
         evidence_bytes = None
@@ -117,6 +124,9 @@ def async_server_dispatch_worker():
             "bbox_x2": str(best_bbox.get("x2", 0)),
             "bbox_y2": str(best_bbox.get("y2", 0)),
             "observation_count": str(candidate.get("observation_count", 1)),
+            "risk_score": str(candidate["risk_score"]),
+            "risk_level": candidate["risk_level"],
+            "priority": candidate["priority"],
             "latitude": str(gps.get("latitude")) if gps.get("latitude") is not None else "",
             "longitude": str(gps.get("longitude")) if gps.get("longitude") is not None else "",
             "gps_timestamp": str(gps.get("gps_timestamp")) if gps.get("gps_timestamp") else "",
@@ -135,7 +145,7 @@ def async_server_dispatch_worker():
                 server_connection_status = "CONNECTED"
                 session_metrics["server_status"] = "CONNECTED"
                 session_metrics["total_final_events_sent"] += 1
-                print(f"[SERVER] Final event sent: {event_id} (confidence={float(data['confidence']):.2f}, observations={data['observation_count']})")
+                print(f"[SERVER] Final event sent: {event_id} | Risk: {candidate['risk_level']} ({candidate['risk_score']}) | Priority: {candidate['priority']} (confidence={float(data['confidence']):.2f}, observations={data['observation_count']})")
                 print(f"[DB] Event saved: {event_id}")
 
                 # Clean up temporary candidate frame now that server has permanently stored it
@@ -348,6 +358,7 @@ async def process_frame(
             if action == "CREATED":
                 session_metrics["total_candidates_created"] += 1
 
+            risk_preview = calculate_pothole_risk(cand)
             latest_candidate_info = {
                 "candidate_id": cand["candidate_id"],
                 "observation_count": cand["observation_count"],
@@ -359,7 +370,10 @@ async def process_frame(
                 "gps": cand["gps"],
                 "event_id": f"EVT-{session_id}-{cand['candidate_id']}",
                 "server_status": server_connection_status,
-                "status": cand.get("status", "ACTIVE")
+                "status": cand.get("status", "ACTIVE"),
+                "risk_score": risk_preview["risk_score"],
+                "risk_level": risk_preview["risk_level"],
+                "priority": risk_preview["priority"]
             }
 
     # Step 5: Check and Finalize Expired Candidates (Gap >= 2.0s)

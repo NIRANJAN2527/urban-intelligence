@@ -90,7 +90,13 @@ const aiEvidenceBox = document.getElementById('aiEvidenceBox');
 const aiEvidenceImg = document.getElementById('aiEvidenceImg');
 const aiEvidenceConfBadge = document.getElementById('aiEvidenceConfBadge');
 const aiEvidenceServerBadge = document.getElementById('aiEvidenceServerBadge');
+const aiEvidenceRiskBadge = document.getElementById('aiEvidenceRiskBadge');
+const aiEvidencePriorityBadge = document.getElementById('aiEvidencePriorityBadge');
 const aiEvtIdVal = document.getElementById('aiEvtIdVal');
+const aiEvtCandidateVal = document.getElementById('aiEvtCandidateVal');
+const aiEvtObsVal = document.getElementById('aiEvtObsVal');
+const aiEvtRiskVal = document.getElementById('aiEvtRiskVal');
+const aiEvtPriorityVal = document.getElementById('aiEvtPriorityVal');
 const aiEvtFrameVal = document.getElementById('aiEvtFrameVal');
 const aiEvtVideoTimeVal = document.getElementById('aiEvtVideoTimeVal');
 const aiEvtGpsVal = document.getElementById('aiEvtGpsVal');
@@ -1228,6 +1234,72 @@ function handleEdgeEventDetected(eventRecord, base64Image = null) {
   if (aiEvidenceServerBadge) aiEvidenceServerBadge.textContent = eventRecord.server_status || 'SENT TO SERVER';
 
   if (aiEvtIdVal) aiEvtIdVal.textContent = eventRecord.event_id || '--';
+  if (aiEvtCandidateVal) aiEvtCandidateVal.textContent = eventRecord.candidate_id || '--';
+  if (aiEvtObsVal) aiEvtObsVal.textContent = eventRecord.observation_count ? `${eventRecord.observation_count} frame(s)` : '--';
+
+  // Risk Score & Badge
+  if (eventRecord.risk_level && eventRecord.risk_score !== undefined && eventRecord.risk_score !== null) {
+    const rScore = eventRecord.risk_score;
+    const rLevel = String(eventRecord.risk_level).toUpperCase();
+    if (aiEvtRiskVal) {
+      aiEvtRiskVal.textContent = `${rLevel} (${rScore}/100)`;
+      aiEvtRiskVal.style.color = rLevel === 'CRITICAL' ? '#ef4444' : (rLevel === 'HIGH' ? '#f97316' : (rLevel === 'MEDIUM' ? '#eab308' : '#10b981'));
+    }
+    if (aiEvidenceRiskBadge) {
+      aiEvidenceRiskBadge.style.display = 'inline-flex';
+      aiEvidenceRiskBadge.textContent = `RISK: ${rLevel} (${rScore})`;
+      if (rLevel === 'CRITICAL') {
+        aiEvidenceRiskBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+        aiEvidenceRiskBadge.style.border = '1px solid #ef4444';
+        aiEvidenceRiskBadge.style.color = '#ef4444';
+      } else if (rLevel === 'HIGH') {
+        aiEvidenceRiskBadge.style.background = 'rgba(249, 115, 22, 0.2)';
+        aiEvidenceRiskBadge.style.border = '1px solid #f97316';
+        aiEvidenceRiskBadge.style.color = '#f97316';
+      } else if (rLevel === 'MEDIUM') {
+        aiEvidenceRiskBadge.style.background = 'rgba(234, 179, 8, 0.2)';
+        aiEvidenceRiskBadge.style.border = '1px solid #eab308';
+        aiEvidenceRiskBadge.style.color = '#eab308';
+      } else {
+        aiEvidenceRiskBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+        aiEvidenceRiskBadge.style.border = '1px solid #10b981';
+        aiEvidenceRiskBadge.style.color = '#10b981';
+      }
+    }
+  } else {
+    if (aiEvtRiskVal) aiEvtRiskVal.textContent = '--';
+    if (aiEvidenceRiskBadge) aiEvidenceRiskBadge.style.display = 'none';
+  }
+
+  // Priority Badge & Text
+  if (eventRecord.priority) {
+    const prio = String(eventRecord.priority).toUpperCase();
+    if (aiEvtPriorityVal) {
+      aiEvtPriorityVal.textContent = prio;
+      aiEvtPriorityVal.style.color = prio === 'HIGH' ? '#ef4444' : (prio === 'MEDIUM' ? '#f59e0b' : '#10b981');
+    }
+    if (aiEvidencePriorityBadge) {
+      aiEvidencePriorityBadge.style.display = 'inline-flex';
+      aiEvidencePriorityBadge.textContent = `PRIORITY: ${prio}`;
+      if (prio === 'HIGH') {
+        aiEvidencePriorityBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+        aiEvidencePriorityBadge.style.border = '1px solid #ef4444';
+        aiEvidencePriorityBadge.style.color = '#ef4444';
+      } else if (prio === 'MEDIUM') {
+        aiEvidencePriorityBadge.style.background = 'rgba(245, 158, 11, 0.2)';
+        aiEvidencePriorityBadge.style.border = '1px solid #f59e0b';
+        aiEvidencePriorityBadge.style.color = '#f59e0b';
+      } else {
+        aiEvidencePriorityBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+        aiEvidencePriorityBadge.style.border = '1px solid #10b981';
+        aiEvidencePriorityBadge.style.color = '#10b981';
+      }
+    }
+  } else {
+    if (aiEvtPriorityVal) aiEvtPriorityVal.textContent = '--';
+    if (aiEvidencePriorityBadge) aiEvidencePriorityBadge.style.display = 'none';
+  }
+
   if (aiEvtFrameVal) aiEvtFrameVal.textContent = eventRecord.frame_id || '--';
   if (aiEvtVideoTimeVal) aiEvtVideoTimeVal.textContent = eventRecord.video_timestamp ? eventRecord.video_timestamp.slice(11, 23) + ' UTC' : '--';
 

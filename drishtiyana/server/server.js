@@ -344,6 +344,9 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       event_type,
       candidate_id,
       observation_count,
+      risk_score,
+      risk_level,
+      priority,
       session_id,
       bus_id,
       camera_id,
@@ -379,12 +382,37 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       processedCandidateEvents.add(dedupeKey);
     }
 
+    // Determine deterministic risk score, level, and priority
+    let parsedRiskScore = risk_score !== undefined && !isNaN(parseInt(risk_score, 10)) ? parseInt(risk_score, 10) : null;
+    let parsedRiskLevel = risk_level || null;
+    let parsedPriority = priority || null;
+
+    if (parsedRiskScore === null) {
+      const confVal = confidence ? parseFloat(confidence) : 0.85;
+      const obsVal = observation_count ? parseInt(observation_count, 10) : 1;
+      const w = (bbox_x2 && bbox_x1) ? parseInt(bbox_x2, 10) - parseInt(bbox_x1, 10) : 120;
+      const h = (bbox_y2 && bbox_y1) ? parseInt(bbox_y2, 10) - parseInt(bbox_y1, 10) : 90;
+      const areaRatio = (w * h) / (1280 * 720);
+
+      const confPts = Math.round(confVal * 35);
+      const sevPts = areaRatio < 0.01 ? 12 : (areaRatio < 0.035 ? 20 : 30);
+      const recPts = obsVal <= 1 ? 6 : (obsVal <= 3 ? 12 : (obsVal <= 6 ? 16 : 20));
+      const spdPts = 5;
+
+      parsedRiskScore = Math.min(100, Math.max(0, confPts + sevPts + recPts + spdPts));
+      parsedRiskLevel = parsedRiskScore <= 25 ? 'LOW' : (parsedRiskScore <= 50 ? 'MEDIUM' : (parsedRiskScore <= 75 ? 'HIGH' : 'CRITICAL'));
+      parsedPriority = parsedRiskScore <= 25 ? 'LOW' : (parsedRiskScore <= 50 ? 'MEDIUM' : 'HIGH');
+    }
+
     const evidenceImageUrl = req.file ? `/uploads/evidence/${req.file.filename}` : null;
 
     const eventRecord = {
       event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
       candidate_id: candidate_id || null,
       observation_count: observation_count ? parseInt(observation_count, 10) : 1,
+      risk_score: parsedRiskScore,
+      risk_level: parsedRiskLevel,
+      priority: parsedPriority,
       session_id: session_id || 'UNKNOWN',
       bus_id: bus_id || 'BUS-101',
       camera_id: camera_id || 'CAM-01',
@@ -406,7 +434,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       evidence_image_url: evidenceImageUrl
     };
 
-    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% (Observed: ${eventRecord.observation_count}x)`);
+    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% | Risk: ${eventRecord.risk_level} (${eventRecord.risk_score}) | Priority: ${eventRecord.priority} (Observed: ${eventRecord.observation_count}x)`);
     console.log(`  Candidate: ${eventRecord.candidate_id || 'N/A'} | Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
     console.log(`  GPS: (${eventRecord.latitude}, ${eventRecord.longitude}) | Match: ${eventRecord.gps_match_status} (delta: ${eventRecord.timestamp_difference_ms} ms)`);
     if (evidenceImageUrl) {

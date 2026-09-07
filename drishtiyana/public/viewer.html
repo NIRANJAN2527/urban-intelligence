@@ -280,12 +280,18 @@
             <div class="edge-evidence-tag">LATEST BEST DETECTION</div>
           </div>
           <div class="edge-evidence-info">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
               <span class="badge badge-live" id="aiEvidenceConfBadge">POTHOLE 95%</span>
+              <span class="badge" id="aiEvidenceRiskBadge" style="display: none;">RISK: --</span>
+              <span class="badge" id="aiEvidencePriorityBadge" style="display: none;">PRIORITY: --</span>
               <span class="badge badge-primary" id="aiEvidenceServerBadge">SENT TO SERVER</span>
             </div>
             <div class="edge-evidence-details" style="margin-top: 0.75rem;">
               <div><strong>Event ID:</strong> <span id="aiEvtIdVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Candidate ID:</strong> <span id="aiEvtCandidateVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Observations:</strong> <span id="aiEvtObsVal" style="font-family: var(--font-mono);">--</span></div>
+              <div><strong>Risk Assessment:</strong> <span id="aiEvtRiskVal" style="font-weight: 700;">--</span></div>
+              <div><strong>Priority:</strong> <span id="aiEvtPriorityVal" style="font-weight: 700;">--</span></div>
               <div><strong>Frame ID:</strong> <span id="aiEvtFrameVal" style="font-family: var(--font-mono);">--</span></div>
               <div><strong>Video Time:</strong> <span id="aiEvtVideoTimeVal" style="font-family: var(--font-mono);">--</span></div>
               <div><strong>Correlated GPS:</strong> <span id="aiEvtGpsVal" style="color: var(--color-primary); font-family: var(--font-mono); font-weight: 700;">--</span></div>
