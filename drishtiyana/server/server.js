@@ -333,12 +333,17 @@ app.get('/api/session-gps/:sessionId', async (req, res) => {
 // EDGE AI EVENT EVIDENCE SUBMISSION API
 // ==============================================================================
 
-// POST /api/edge/events: Receives verified pothole detection event with correlated GPS & evidence image
+// In-memory set for candidate event deduplication and idempotency
+const processedCandidateEvents = new Set();
+
+// POST /api/edge/events: Receives finalized pothole detection event with correlated GPS & evidence image
 app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req, res) => {
   try {
     const {
       event_id,
       event_type,
+      candidate_id,
+      observation_count,
       session_id,
       bus_id,
       camera_id,
@@ -359,10 +364,27 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       gps_match_status
     } = req.body;
 
+    const dedupeKey = `${session_id || 'UNKNOWN'}:${candidate_id || event_id}`;
+    if (dedupeKey && processedCandidateEvents.has(dedupeKey)) {
+      console.log(`[Server Idempotency] Duplicate candidate event rejected: ${dedupeKey}`);
+      return res.status(200).json({
+        success: true,
+        duplicate: true,
+        event_id: event_id || dedupeKey,
+        candidate_id: candidate_id || null,
+        message: 'Candidate event has already been finalized and recorded.'
+      });
+    }
+    if (dedupeKey) {
+      processedCandidateEvents.add(dedupeKey);
+    }
+
     const evidenceImageUrl = req.file ? `/uploads/evidence/${req.file.filename}` : null;
 
     const eventRecord = {
       event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      candidate_id: candidate_id || null,
+      observation_count: observation_count ? parseInt(observation_count, 10) : 1,
       session_id: session_id || 'UNKNOWN',
       bus_id: bus_id || 'BUS-101',
       camera_id: camera_id || 'CAM-01',
@@ -384,8 +406,8 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       evidence_image_url: evidenceImageUrl
     };
 
-    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}%`);
-    console.log(`  Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
+    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% (Observed: ${eventRecord.observation_count}x)`);
+    console.log(`  Candidate: ${eventRecord.candidate_id || 'N/A'} | Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
     console.log(`  GPS: (${eventRecord.latitude}, ${eventRecord.longitude}) | Match: ${eventRecord.gps_match_status} (delta: ${eventRecord.timestamp_difference_ms} ms)`);
     if (evidenceImageUrl) {
       console.log(`  Evidence Image: ${evidenceImageUrl}`);
@@ -396,6 +418,11 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     if (supabase.isSupabaseConfigured()) {
       const dbRes = await supabase.insertPotholeEvent(eventRecord);
       dbSaved = dbRes.success;
+      if (dbSaved) {
+        console.log(`[DB] Event saved: ${eventRecord.event_id}`);
+      }
+    } else {
+      console.log(`[DB] Local memory relay (Supabase unconfigured): ${eventRecord.event_id}`);
     }
 
     // Broadcast event to connected laptop monitors
@@ -406,6 +433,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     return res.status(200).json({
       success: true,
       event_id: eventRecord.event_id,
+      candidate_id: eventRecord.candidate_id,
       evidence_image_url: evidenceImageUrl,
       dbSaved,
       dbConfigured: supabase.isSupabaseConfigured()

@@ -35,4 +35,7 @@ temp/
 uploads/
 **/uploads/*
 !**/uploads/.gitkeep
+**/tmp_candidates/
+__pycache__/
+*.pyc
 

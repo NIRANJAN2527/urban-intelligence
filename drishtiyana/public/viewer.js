@@ -75,12 +75,16 @@ const aiStatusBadge = document.getElementById('aiStatusBadge');
 const aiStatusDot = document.getElementById('aiStatusDot');
 const aiStatusText = document.getElementById('aiStatusText');
 
+const aiYoloBadge = document.getElementById('aiYoloBadge');
+const aiRedisBadge = document.getElementById('aiRedisBadge');
+const aiServerBadge = document.getElementById('aiServerBadge');
+
 const aiFramesVal = document.getElementById('aiFramesVal');
 const aiDetectionsVal = document.getElementById('aiDetectionsVal');
-const aiAcceptedVal = document.getElementById('aiAcceptedVal');
-const aiBestConfVal = document.getElementById('aiBestConfVal');
-const aiLatencyVal = document.getElementById('aiLatencyVal');
-const aiRedisStatusVal = document.getElementById('aiRedisStatusVal');
+const aiActiveCandidatesVal = document.getElementById('aiActiveCandidatesVal');
+const aiFinalizedEventsVal = document.getElementById('aiFinalizedEventsVal');
+const aiLastConfVal = document.getElementById('aiLastConfVal');
+const aiCandidateObsVal = document.getElementById('aiCandidateObsVal');
 
 const aiEvidenceBox = document.getElementById('aiEvidenceBox');
 const aiEvidenceImg = document.getElementById('aiEvidenceImg');
@@ -1086,8 +1090,10 @@ async function startEdgeProcessing() {
 
   if (aiFramesVal) aiFramesVal.textContent = '0';
   if (aiDetectionsVal) aiDetectionsVal.textContent = '0';
-  if (aiAcceptedVal) aiAcceptedVal.textContent = '0';
-  if (aiBestConfVal) aiBestConfVal.textContent = '0.0%';
+  if (aiActiveCandidatesVal) aiActiveCandidatesVal.textContent = '0';
+  if (aiFinalizedEventsVal) aiFinalizedEventsVal.textContent = '0';
+  if (aiLastConfVal) aiLastConfVal.textContent = '0.0%';
+  if (aiCandidateObsVal) aiCandidateObsVal.textContent = '0';
 
   const intervalMs = Math.round(1000 / EDGE_PROCESSING_FPS); // ~200 ms for 5 FPS
   edgeAiInterval = setInterval(captureAndProcessEdgeFrame, intervalMs);
@@ -1173,21 +1179,32 @@ async function captureAndProcessEdgeFrame() {
 
 function handleEdgeFrameResult(data) {
   if (aiFramesVal) aiFramesVal.textContent = data.frame_id;
-  if (aiLatencyVal) aiLatencyVal.textContent = `${data.processing_time_ms} ms (${data.fps_achievable} FPS)`;
+  if (aiDetectionsVal) aiDetectionsVal.textContent = data.detections_count || 0;
+  if (aiActiveCandidatesVal) aiActiveCandidatesVal.textContent = data.active_candidates_count || 0;
+  if (aiFinalizedEventsVal) aiFinalizedEventsVal.textContent = data.finalized_events_count || 0;
 
-  if (data.detections_count > 0) {
-    edgeTotalDetections += data.detections_count;
-    if (aiDetectionsVal) aiDetectionsVal.textContent = edgeTotalDetections;
+  if (data.latest_event) {
+    if (aiLastConfVal) aiLastConfVal.textContent = `${(data.latest_event.confidence * 100).toFixed(1)}%`;
+    if (aiCandidateObsVal) aiCandidateObsVal.textContent = data.latest_event.observation_count || 1;
+  } else if (data.best_confidence > 0) {
+    if (aiLastConfVal) aiLastConfVal.textContent = `${(data.best_confidence * 100).toFixed(1)}%`;
   }
 
-  if (data.accepted_count > 0) {
-    edgeAcceptedCount += data.accepted_count;
-    if (aiAcceptedVal) aiAcceptedVal.textContent = edgeAcceptedCount;
-
-    if (data.best_confidence > edgeBestConfidence) {
-      edgeBestConfidence = data.best_confidence;
-      if (aiBestConfVal) aiBestConfVal.textContent = `${(edgeBestConfidence * 100).toFixed(1)}%`;
-    }
+  // Update Status Badges
+  if (aiYoloBadge) {
+    aiYoloBadge.textContent = 'YOLO: ACTIVE';
+    aiYoloBadge.className = 'badge badge-primary';
+  }
+  if (aiRedisBadge) {
+    const rMode = data.redis_status || 'CONNECTED';
+    const isOffline = rMode.toUpperCase().includes('DISCONNECTED');
+    aiRedisBadge.textContent = `REDIS: ${isOffline ? 'DISCONNECTED' : 'CONNECTED'}`;
+    aiRedisBadge.className = `badge ${isOffline ? 'badge-offline' : 'badge-live'}`;
+  }
+  if (aiServerBadge) {
+    const sStat = data.server_status || 'CONNECTED';
+    aiServerBadge.textContent = `SERVER: ${sStat}`;
+    aiServerBadge.className = `badge ${sStat === 'CONNECTED' ? 'badge-live' : (sStat === 'PENDING' ? 'badge-warning' : 'badge-offline')}`;
   }
 
   // Update latest event evidence panel

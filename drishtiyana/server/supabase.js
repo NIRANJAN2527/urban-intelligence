@@ -190,12 +190,36 @@ async function insertPotholeEvent(eventData) {
   }
 
   try {
+    // Filter to known database columns from schema.sql
+    const dbPayload = {
+      event_id: eventData.event_id,
+      session_id: eventData.session_id,
+      bus_id: eventData.bus_id,
+      camera_id: eventData.camera_id || 'CAM-01',
+      frame_id: eventData.frame_id,
+      video_timestamp: eventData.video_timestamp,
+      processing_timestamp: eventData.processing_timestamp,
+      confidence: eventData.confidence,
+      class_name: eventData.class_name || 'Pothole',
+      bbox_x1: eventData.bbox_x1,
+      bbox_y1: eventData.bbox_y1,
+      bbox_x2: eventData.bbox_x2,
+      bbox_y2: eventData.bbox_y2,
+      latitude: eventData.latitude,
+      longitude: eventData.longitude,
+      gps_timestamp: eventData.gps_timestamp,
+      gps_accuracy: eventData.gps_accuracy,
+      timestamp_difference_ms: eventData.timestamp_difference_ms,
+      gps_match_status: eventData.gps_match_status,
+      evidence_image_url: eventData.evidence_image_url
+    };
+
     const { data, error } = await supabase
       .from('pothole_events')
-      .insert([eventData]);
+      .upsert(dbPayload, { onConflict: 'event_id' });
 
     if (error) {
-      console.warn('[Supabase] Failed to insert pothole event:', error.message);
+      console.warn('[Supabase] Failed to insert/upsert pothole event:', error.message);
       return { success: false, error: error.message };
     }
 

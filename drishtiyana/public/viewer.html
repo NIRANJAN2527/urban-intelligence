@@ -235,41 +235,41 @@
         </div>
 
         <!-- Edge AI Status Pills -->
-        <div class="edge-ai-badges" style="margin-top: 1rem;">
+        <div class="edge-ai-badges" style="margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
           <span class="badge" id="aiStatusBadge">
             <span class="status-dot" id="aiStatusDot"></span>
             <span id="aiStatusText">EDGE AI: STANDBY</span>
           </span>
-          <span class="badge badge-primary">MODEL: POTHOLE YOLOv8 (best.pt)</span>
-          <span class="badge">CONFIDENCE THRESHOLD: &ge; 80%</span>
-          <span class="badge">PROCESSING: 5 FPS</span>
+          <span class="badge badge-primary" id="aiYoloBadge">YOLO: ACTIVE</span>
+          <span class="badge" id="aiRedisBadge">REDIS: CONNECTED</span>
+          <span class="badge" id="aiServerBadge">SERVER: CONNECTED</span>
         </div>
 
         <!-- Edge AI Metrics Grid -->
-        <div class="edge-metrics-grid" style="margin-top: 1rem;">
+        <div class="telemetry-grid" style="margin-top: 1rem;">
           <div class="telemetry-item">
             <span class="telemetry-label">FRAMES PROCESSED</span>
             <span class="telemetry-val" id="aiFramesVal">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">POTHOLES DETECTED</span>
+            <span class="telemetry-label">CURRENT DETECTIONS</span>
             <span class="telemetry-val" id="aiDetectionsVal">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">ACCEPTED (&ge;80%)</span>
-            <span class="telemetry-val" id="aiAcceptedVal" style="color: var(--color-primary);">0</span>
+            <span class="telemetry-label">ACTIVE CANDIDATES</span>
+            <span class="telemetry-val" id="aiActiveCandidatesVal" style="color: var(--color-warning);">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">BEST CONFIDENCE</span>
-            <span class="telemetry-val" id="aiBestConfVal">0.0%</span>
+            <span class="telemetry-label">FINALIZED EVENTS</span>
+            <span class="telemetry-val" id="aiFinalizedEventsVal" style="color: var(--color-primary);">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">AI LATENCY / FPS</span>
-            <span class="telemetry-val" id="aiLatencyVal">-- ms</span>
+            <span class="telemetry-label">LAST POTHOLE CONF</span>
+            <span class="telemetry-val" id="aiLastConfVal">0.0%</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">REDIS 30s CACHE</span>
-            <span class="telemetry-val" id="aiRedisStatusVal" style="font-size: 0.82rem; color: var(--color-live);">READY</span>
+            <span class="telemetry-label">CANDIDATE OBS</span>
+            <span class="telemetry-val" id="aiCandidateObsVal">0</span>
           </div>
         </div>
 
