@@ -43,16 +43,36 @@
     </div>
   </header>
 
+  <!-- Input Mode Selector Bar -->
+  <div class="mode-selector-bar">
+    <div class="mode-selector-wrapper">
+      <span class="mode-selector-title">INPUT SOURCE:</span>
+      <div class="mode-switch-group">
+        <button id="modeBtnLive" class="mode-btn active" type="button">
+          <span class="mode-btn-indicator live"></span>
+          <span>🟢 LIVE BUS SENSOR</span>
+        </button>
+        <button id="modeBtnUpload" class="mode-btn" type="button">
+          <span class="mode-btn-indicator upload"></span>
+          <span>📁 UPLOAD FILES</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main Content Layout -->
   <main class="container">
-    <div class="glass-card">
+
+    <!-- ==================================================================== -->
+    <!-- MODE 1: LIVE BUS SENSOR (WEBRTC LIVE CAMERA + GPS)                   -->
+    <!-- ==================================================================== -->
+    <div id="liveModeContainer" class="glass-card">
       
       <!-- Dual Display: Live Video Monitor + Real-Time GIS Map -->
       <div class="monitor-gis-grid">
         
         <!-- Screen 1: Live Video Feed Stage -->
         <div class="monitor-stage">
-          <!-- Live Remote Video Stream (muted and playsinline ensure browser autoplay never blocks playback) -->
           <video id="remoteVideo" class="monitor-video" autoplay playsinline muted></video>
 
           <!-- Standby Placeholder when camera is not broadcasting -->
@@ -88,10 +108,8 @@
 
         <!-- Screen 2: Interactive Real-Time GIS Map -->
         <div class="gis-map-stage">
-          <!-- Leaflet Map Container -->
           <div id="busMap"></div>
 
-          <!-- GIS Map HUD Controls -->
           <div class="gis-map-hud">
             <div class="hud-pill">
               <span class="status-dot" id="mapStatusDot"></span>
@@ -130,7 +148,7 @@
 
       <!-- Real-Time GPS Telemetry Cards -->
       <div style="margin-top: 1.25rem;">
-        <span class="status-label">MOBILE BUS TELEMETRY (LIVE GIS DATA)</span>
+        <span class="status-label">MOBILE BUS TELEMETRY (LIVE PEER-TO-PEER DATA)</span>
         <div class="telemetry-grid">
           <div class="telemetry-item">
             <span class="telemetry-label">LATITUDE</span>
@@ -161,7 +179,6 @@
 
       <!-- Status Metrics Bar -->
       <div class="status-grid">
-        <!-- Video Stream State -->
         <div class="status-card">
           <span class="status-label">VIDEO STREAM</span>
           <span class="status-value" id="videoStatusVal">
@@ -169,8 +186,6 @@
             <span id="videoText">OFFLINE</span>
           </span>
         </div>
-
-        <!-- GPS Telemetry State -->
         <div class="status-card">
           <span class="status-label">GPS TELEMETRY</span>
           <span class="status-value" id="gpsStatusVal">
@@ -178,8 +193,6 @@
             <span id="gpsText">OFFLINE</span>
           </span>
         </div>
-
-        <!-- Connection State Card -->
         <div class="status-card">
           <span class="status-label">SERVER CONNECTION</span>
           <span class="status-value" id="connStatusVal">
@@ -187,25 +200,234 @@
             <span id="connText">CONNECTING...</span>
           </span>
         </div>
-
-        <!-- WebRTC Peer-to-Peer Link -->
         <div class="status-card">
           <span class="status-label">WEBRTC P2P DATA</span>
-          <span class="status-value" id="p2pStatusVal" style="font-size: 0.95rem;">
-            STANDBY
-          </span>
+          <span class="status-value" id="p2pStatusVal" style="font-size: 0.95rem;">STANDBY</span>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ==================================================================== -->
+    <!-- MODE 2: UPLOAD FILES (PRERECORDED VIDEO + GPS FILE PLAYBACK)         -->
+    <!-- ==================================================================== -->
+    <div id="uploadModeContainer" style="display: none;">
+      
+      <!-- Stage 2A: Upload Setup Card -->
+      <div id="uploadSetupCard" class="glass-card">
+        <div class="upload-header-banner">
+          <div>
+            <h2 class="upload-card-title">DRISHTIYANA FILE INPUT</h2>
+            <p class="upload-card-subtitle">Upload prerecorded road video and timestamped GPS telemetry for synchronized processing</p>
+          </div>
+          <span class="badge badge-primary">SOURCE: UPLOAD</span>
+        </div>
+
+        <div class="upload-grid" style="margin-top: 1.5rem;">
+          <!-- Video File Dropzone -->
+          <div class="dropzone-card" id="videoDropzone">
+            <div class="dropzone-icon">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+              </svg>
+            </div>
+            <h3 class="dropzone-title">VIDEO INPUT</h3>
+            <p class="dropzone-desc">Choose a prerecorded road video file</p>
+            <p class="dropzone-formats">Supported: <strong>MP4, AVI, MOV, WEBM</strong></p>
+            
+            <input type="file" id="videoFileInput" accept=".mp4,.avi,.mov,.webm" style="display: none;">
+            <button class="btn btn-secondary" type="button" onclick="document.getElementById('videoFileInput').click();">
+              📁 Choose Video File
+            </button>
+            <span class="file-selected-badge" id="videoFileBadge">No video chosen</span>
+          </div>
+
+          <!-- GPS File Dropzone -->
+          <div class="dropzone-card" id="gpsDropzone">
+            <div class="dropzone-icon">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+            </div>
+            <h3 class="dropzone-title">GPS INPUT</h3>
+            <p class="dropzone-desc">Choose timestamped GPS coordinate dataset</p>
+            <p class="dropzone-formats">Supported: <strong>JSON, CSV</strong></p>
+            
+            <input type="file" id="gpsFileInput" accept=".json,.csv" style="display: none;">
+            <button class="btn btn-secondary" type="button" onclick="document.getElementById('gpsFileInput').click();">
+              📍 Choose GPS File
+            </button>
+            <span class="file-selected-badge" id="gpsFileBadge">No GPS chosen</span>
+          </div>
+        </div>
+
+        <!-- Session & Metadata Config Row -->
+        <div class="upload-meta-grid" style="margin-top: 1.5rem;">
+          <div class="status-card">
+            <span class="status-label">BUS ID</span>
+            <input type="text" id="uploadBusIdInput" class="text-input" value="BUS-101" placeholder="BUS-101">
+          </div>
+          <div class="status-card">
+            <span class="status-label">ASSIGNED SESSION ID</span>
+            <span class="status-value" id="uploadPreviewSessionId" style="color: var(--color-primary); font-size: 0.95rem;">AUTO-GENERATED</span>
+          </div>
+        </div>
+
+        <!-- Validation Summary Checklist -->
+        <div class="upload-summary-box" style="margin-top: 1.25rem;">
+          <div class="summary-item" id="summaryItemVideo">
+            <span class="summary-icon">⚪</span>
+            <span>Video File: <strong id="summaryVideoText">Not selected</strong></span>
+          </div>
+          <div class="summary-item" id="summaryItemGps">
+            <span class="summary-icon">⚪</span>
+            <span>GPS Dataset: <strong id="summaryGpsText">Not selected</strong></span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-icon">🔵</span>
+            <span>Session Status: <strong id="summaryStatusText">WAITING FOR FILES</strong></span>
+          </div>
+        </div>
+
+        <!-- Upload Progress Indicator (Hidden by default) -->
+        <div id="uploadProgressBox" style="display: none; margin-top: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.4rem;">
+            <span id="uploadProgressStepText" style="color: var(--color-primary); font-weight: 600;">Uploading files...</span>
+            <span id="uploadProgressPercent" style="font-family: var(--font-mono); font-weight: 700;">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="uploadProgressFill"></div>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div style="margin-top: 1.5rem;">
+          <button id="uploadSubmitBtn" class="btn btn-primary" type="button" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <span id="uploadSubmitBtnText">UPLOAD & START PROCESSING</span>
+          </button>
         </div>
       </div>
 
-      <!-- Alert Box -->
-      <div id="viewerAlert" class="alert alert-warning" style="display: none; margin-top: 1.25rem;">
-        <span id="viewerAlertText"></span>
+      <!-- Stage 2B: Processing & Synchronized Playback View (Shown after upload succeeds) -->
+      <div id="uploadPlaybackCard" class="glass-card" style="display: none; margin-top: 1rem;">
+        <div class="upload-header-banner">
+          <div>
+            <h2 class="upload-card-title">VIDEO PROCESSING & GIS PLAYBACK</h2>
+            <p class="upload-card-subtitle">
+              BUS: <span id="playbackBusId" style="color: var(--color-primary); font-weight: 700;">BUS-101</span> &bull;
+              SESSION: <span id="playbackSessionId" style="font-family: var(--font-mono); color: #ffffff;">SESSION-...</span> &bull;
+              SOURCE: <span class="badge badge-primary">UPLOAD</span>
+            </p>
+          </div>
+          <button id="resetUploadBtn" class="btn btn-secondary" style="width: auto; padding: 0.45rem 1rem; font-size: 0.8rem;" type="button">
+            ↺ Upload Another File Set
+          </button>
+        </div>
+
+        <!-- Dual Grid: Uploaded Video Player + Uploaded GIS Route Map -->
+        <div class="monitor-gis-grid" style="margin-top: 1.25rem;">
+          
+          <!-- Uploaded Video Player Stage -->
+          <div class="monitor-stage">
+            <video id="uploadedVideoPlayer" class="monitor-video" controls playsinline></video>
+          </div>
+
+          <!-- Uploaded Route GIS Map -->
+          <div class="gis-map-stage">
+            <div id="uploadBusMap"></div>
+
+            <div class="gis-map-hud">
+              <div class="hud-pill">
+                <span class="status-dot active"></span>
+                <span id="uploadMapStatusText">GPS: ROUTE LOADED</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button id="recenterUploadMapBtn" class="map-ctrl-btn" title="Center on Bus">
+                  🎯 Recenter
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Real-Time Synchronized Timestamps (Playback) -->
+        <div class="timestamp-container" style="margin-top: 1.25rem;">
+          <div class="timestamp-box">
+            <span class="timestamp-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+              VIDEO ELAPSED / ABSOLUTE TIME
+            </span>
+            <span class="timestamp-value" id="uploadVideoTimeVal">00:00:00.000</span>
+          </div>
+          <div class="timestamp-box">
+            <span class="timestamp-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              MATCHED GPS TIME
+            </span>
+            <span class="timestamp-value" id="uploadGpsTimeVal">----:--:-- --:--:--</span>
+          </div>
+        </div>
+
+        <!-- Telemetry Cards (Nearest-Neighbor Match) -->
+        <div style="margin-top: 1.25rem;">
+          <span class="status-label">CORRELATED GPS TELEMETRY AT CURRENT VIDEO FRAME</span>
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <span class="telemetry-label">LATITUDE</span>
+              <span class="telemetry-val" id="uploadLatVal" style="color: var(--color-primary);">--</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">LONGITUDE</span>
+              <span class="telemetry-val" id="uploadLonVal" style="color: var(--color-primary);">--</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">ACCURACY</span>
+              <span class="telemetry-val" id="uploadAccVal">--</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">SPEED</span>
+              <span class="telemetry-val" id="uploadSpeedVal">--</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">GPS STATUS</span>
+              <span class="telemetry-val" id="uploadMatchStatusVal" style="color: var(--color-live); font-size: 0.85rem;">MATCHED</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">TIME DELTA</span>
+              <span class="telemetry-val" id="uploadDeltaVal" style="font-size: 0.85rem;">-- ms</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Standby AI Pipeline Trigger Card -->
+        <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end; align-items: center; gap: 1rem;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Pipeline Status: <strong style="color: var(--color-live);">READY FOR AI PROCESSING</strong></span>
+          <button id="processAiBtn" class="btn btn-secondary" style="width: auto; padding: 0.6rem 1.25rem; font-size: 0.85rem;" type="button">
+            🤖 Verify Session for AI Pipeline
+          </button>
+        </div>
+
       </div>
+
     </div>
+
+    <!-- Alert Box -->
+    <div id="viewerAlert" class="alert alert-warning" style="display: none; margin-top: 1.25rem;">
+      <span id="viewerAlertText"></span>
+    </div>
+
   </main>
 
   <footer class="app-footer">
-    DRISHTIYANA Edge Monitor &bull; Peer-to-Peer WebRTC Architecture &bull; SIH 2026
+    DRISHTIYANA Edge Monitor &bull; Dual Mode: Live Sensing & File Upload &bull; SIH 2026
   </footer>
 
   <script src="viewer.js"></script>

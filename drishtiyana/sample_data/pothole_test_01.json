@@ -1,0 +1,106 @@
+[
+  {
+    "timestamp": "2026-09-08T10:30:00.000Z",
+    "latitude": 17.385044,
+    "longitude": 78.486671,
+    "accuracy": 7.8,
+    "speed": 9.2,
+    "heading": 85
+  },
+  {
+    "timestamp": "2026-09-08T10:30:01.000Z",
+    "latitude": 17.385120,
+    "longitude": 78.486745,
+    "accuracy": 7.5,
+    "speed": 9.5,
+    "heading": 86
+  },
+  {
+    "timestamp": "2026-09-08T10:30:02.000Z",
+    "latitude": 17.385195,
+    "longitude": 78.486820,
+    "accuracy": 7.1,
+    "speed": 9.8,
+    "heading": 85
+  },
+  {
+    "timestamp": "2026-09-08T10:30:03.000Z",
+    "latitude": 17.385270,
+    "longitude": 78.486895,
+    "accuracy": 6.8,
+    "speed": 10.1,
+    "heading": 87
+  },
+  {
+    "timestamp": "2026-09-08T10:30:04.000Z",
+    "latitude": 17.385345,
+    "longitude": 78.486970,
+    "accuracy": 6.5,
+    "speed": 10.4,
+    "heading": 86
+  },
+  {
+    "timestamp": "2026-09-08T10:30:05.000Z",
+    "latitude": 17.385420,
+    "longitude": 78.487045,
+    "accuracy": 6.2,
+    "speed": 10.7,
+    "heading": 88
+  },
+  {
+    "timestamp": "2026-09-08T10:30:06.000Z",
+    "latitude": 17.385495,
+    "longitude": 78.487120,
+    "accuracy": 6.0,
+    "speed": 10.5,
+    "heading": 87
+  },
+  {
+    "timestamp": "2026-09-08T10:30:07.000Z",
+    "latitude": 17.385570,
+    "longitude": 78.487195,
+    "accuracy": 5.9,
+    "speed": 10.2,
+    "heading": 86
+  },
+  {
+    "timestamp": "2026-09-08T10:30:08.000Z",
+    "latitude": 17.385645,
+    "longitude": 78.487270,
+    "accuracy": 5.8,
+    "speed": 9.9,
+    "heading": 85
+  },
+  {
+    "timestamp": "2026-09-08T10:30:09.000Z",
+    "latitude": 17.385720,
+    "longitude": 78.487345,
+    "accuracy": 5.6,
+    "speed": 9.6,
+    "heading": 86
+  },
+  {
+    "timestamp": "2026-09-08T10:30:10.000Z",
+    "latitude": 17.385795,
+    "longitude": 78.487420,
+    "accuracy": 5.5,
+    "speed": 9.4,
+    "heading": 87
+  },
+  {
+    "timestamp": "2026-09-08T10:30:11.000Z",
+    "latitude": 17.385870,
+    "longitude": 78.487495,
+    "accuracy": 5.4,
+    "speed": 9.1,
+    "heading": 86
+  },
+  {
+    "timestamp": "2026-09-08T10:30:12.000Z",
+    "latitude": 17.385945,
+    "longitude": 78.487570,
+    "accuracy": 5.2,
+    "speed": 8.8,
+    "heading": 85
+  }
+]

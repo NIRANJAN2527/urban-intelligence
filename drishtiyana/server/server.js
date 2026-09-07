@@ -3,6 +3,8 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
+const multer = require('multer');
 const { Server } = require('socket.io');
 const selfsigned = require('selfsigned');
 const supabase = require('./supabase');
@@ -12,9 +14,18 @@ const HTTP_PORT = process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3001;
 
 // Body parser for JSON payloads
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
-// Serve static files from the public directory
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve uploaded videos as static streaming media
+app.use('/uploads', express.static(uploadsDir));
+
+// Serve static frontend files from public/
 const publicDir = path.join(__dirname, '..', 'public');
 app.use(express.static(publicDir));
 
@@ -31,6 +42,77 @@ app.get('/viewer', (req, res) => {
   res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 
+// Configure Multer for File Uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const cleanBase = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    cb(null, `${cleanBase}-${Date.now()}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 } // 500 MB limit
+});
+
+// Helper: Parse and validate CSV formatted GPS data
+function parseGpsCsv(csvContent) {
+  const lines = csvContent.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (lines.length < 2) {
+    throw new Error('CSV file is empty or missing data rows');
+  }
+
+  // Parse header
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
+  const tsIdx = headers.findIndex(h => h === 'timestamp' || h === 'gps_timestamp' || h === 'time');
+  const latIdx = headers.findIndex(h => h === 'latitude' || h === 'lat');
+  const lonIdx = headers.findIndex(h => h === 'longitude' || h === 'lon' || h === 'lng');
+  const accIdx = headers.findIndex(h => h === 'accuracy' || h === 'acc');
+  const speedIdx = headers.findIndex(h => h === 'speed');
+  const headIdx = headers.findIndex(h => h === 'heading' || h === 'bearing');
+
+  if (tsIdx === -1 || latIdx === -1 || lonIdx === -1) {
+    throw new Error('CSV missing required columns: timestamp, latitude, longitude');
+  }
+
+  const records = [];
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split(',').map(v => v.trim().replace(/['"]/g, ''));
+    if (row.length < 3) continue;
+
+    const rawTs = row[tsIdx];
+    const rawLat = parseFloat(row[latIdx]);
+    const rawLon = parseFloat(row[lonIdx]);
+
+    if (!rawTs || isNaN(Date.parse(rawTs))) {
+      throw new Error(`Invalid timestamp at CSV row ${i + 1}: "${rawTs}"`);
+    }
+
+    if (isNaN(rawLat) || rawLat < -90 || rawLat > 90) {
+      throw new Error(`Invalid latitude at CSV row ${i + 1}: "${row[latIdx]}"`);
+    }
+
+    if (isNaN(rawLon) || rawLon < -180 || rawLon > 180) {
+      throw new Error(`Invalid longitude at CSV row ${i + 1}: "${row[lonIdx]}"`);
+    }
+
+    records.push({
+      timestamp: new Date(rawTs).toISOString(),
+      latitude: rawLat,
+      longitude: rawLon,
+      accuracy: accIdx !== -1 && !isNaN(parseFloat(row[accIdx])) ? parseFloat(row[accIdx]) : null,
+      speed: speedIdx !== -1 && !isNaN(parseFloat(row[speedIdx])) ? parseFloat(row[speedIdx]) : null,
+      heading: headIdx !== -1 && !isNaN(parseFloat(row[headIdx])) ? parseFloat(row[headIdx]) : null
+    });
+  }
+
+  return records;
+}
+
 // System Status API
 app.get('/api/status', (req, res) => {
   res.json({
@@ -39,7 +121,199 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Session Lifecycle APIs
+// ==============================================================================
+// MODE 2: FILE UPLOAD ENDPOINTS
+// ==============================================================================
+
+// POST /api/upload-session: Handles Video + GPS File Upload
+app.post('/api/upload-session', upload.fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'gps', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const files = req.files || {};
+    const videoFile = files['video'] ? files['video'][0] : null;
+    const gpsFile = files['gps'] ? files['gps'][0] : null;
+    const busId = req.body.bus_id ? req.body.bus_id.trim() : 'BUS-101';
+
+    // 1. Validate File Existence
+    if (!videoFile) {
+      return res.status(400).json({ error: 'Video file is required' });
+    }
+    if (!gpsFile) {
+      return res.status(400).json({ error: 'GPS file is required' });
+    }
+
+    // 2. Validate Video Extension
+    const allowedVideoExts = ['.mp4', '.avi', '.mov', '.webm'];
+    const videoExt = path.extname(videoFile.originalname).toLowerCase();
+    if (!allowedVideoExts.includes(videoExt)) {
+      if (fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+      if (fs.existsSync(gpsFile.path)) fs.unlinkSync(gpsFile.path);
+      return res.status(400).json({ error: `Unsupported video format: "${videoExt}". Allowed: ${allowedVideoExts.join(', ')}` });
+    }
+
+    // 3. Validate GPS Extension
+    const allowedGpsExts = ['.json', '.csv'];
+    const gpsExt = path.extname(gpsFile.originalname).toLowerCase();
+    if (!allowedGpsExts.includes(gpsExt)) {
+      if (fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+      if (fs.existsSync(gpsFile.path)) fs.unlinkSync(gpsFile.path);
+      return res.status(400).json({ error: `Unsupported GPS file format: "${gpsExt}". Allowed: .json, .csv` });
+    }
+
+    // 4. Read and Parse GPS Content
+    const gpsRawContent = fs.readFileSync(gpsFile.path, 'utf8');
+    let parsedRecords = [];
+
+    if (gpsExt === '.json') {
+      try {
+        const rawJson = JSON.parse(gpsRawContent);
+        if (!Array.isArray(rawJson)) {
+          throw new Error('JSON GPS file must contain an array of location objects');
+        }
+        if (rawJson.length === 0) {
+          throw new Error('JSON GPS array is empty');
+        }
+
+        // Validate each item
+        for (let i = 0; i < rawJson.length; i++) {
+          const item = rawJson[i];
+          const rawTs = item.timestamp || item.gps_timestamp || item.time;
+          const lat = parseFloat(item.latitude || item.lat);
+          const lon = parseFloat(item.longitude || item.lon || item.lng);
+
+          if (!rawTs || isNaN(Date.parse(rawTs))) {
+            throw new Error(`Item ${i + 1} has invalid or missing timestamp`);
+          }
+          if (isNaN(lat) || lat < -90 || lat > 90) {
+            throw new Error(`Item ${i + 1} has invalid latitude (must be between -90 and 90)`);
+          }
+          if (isNaN(lon) || lon < -180 || lon > 180) {
+            throw new Error(`Item ${i + 1} has invalid longitude (must be between -180 and 180)`);
+          }
+
+          parsedRecords.push({
+            timestamp: new Date(rawTs).toISOString(),
+            latitude: lat,
+            longitude: lon,
+            accuracy: item.accuracy !== undefined ? parseFloat(item.accuracy) : null,
+            speed: item.speed !== undefined ? parseFloat(item.speed) : null,
+            heading: item.heading !== undefined ? parseFloat(item.heading) : null
+          });
+        }
+      } catch (jsonErr) {
+        if (fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+        if (fs.existsSync(gpsFile.path)) fs.unlinkSync(gpsFile.path);
+        return res.status(400).json({ error: `Invalid GPS JSON file: ${jsonErr.message}` });
+      }
+    } else if (gpsExt === '.csv') {
+      try {
+        parsedRecords = parseGpsCsv(gpsRawContent);
+      } catch (csvErr) {
+        if (fs.existsSync(videoFile.path)) fs.unlinkSync(videoFile.path);
+        if (fs.existsSync(gpsFile.path)) fs.unlinkSync(gpsFile.path);
+        return res.status(400).json({ error: `Invalid GPS CSV file: ${csvErr.message}` });
+      }
+    }
+
+    // 5. Clean up temporary uploaded GPS text file
+    if (fs.existsSync(gpsFile.path)) {
+      fs.unlinkSync(gpsFile.path);
+    }
+
+    // 6. Chronologically Sort GPS records by timestamp
+    parsedRecords.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    // 7. Generate Session ID
+    const dateStr = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+    const randNum = Math.floor(100 + Math.random() * 900);
+    const sessionId = `SESSION-UPLOAD-${dateStr}-${randNum}`;
+
+    const videoStartedAt = parsedRecords[0].timestamp;
+    const serverReceivedAt = new Date().toISOString();
+
+    // 8. Format records for DB Insertion & In-Memory client use
+    const formattedGpsRecords = parsedRecords.map(r => ({
+      bus_id: busId,
+      session_id: sessionId,
+      source_type: 'UPLOAD',
+      latitude: r.latitude,
+      longitude: r.longitude,
+      accuracy: r.accuracy,
+      speed: r.speed,
+      heading: r.heading,
+      gps_timestamp: r.timestamp,
+      server_received_at: serverReceivedAt
+    }));
+
+    // 9. Persist Session & GPS records to Supabase (non-blocking)
+    supabase.createSession({
+      session_id: sessionId,
+      bus_id: busId,
+      source_type: 'UPLOAD',
+      video_filename: videoFile.filename,
+      video_started_at: videoStartedAt
+    }).then(sessionRes => {
+      console.log(`[Upload Mode] Session ${sessionId} registered in Supabase:`, sessionRes.success);
+      return supabase.insertGpsLocationsBulk(formattedGpsRecords);
+    }).then(gpsRes => {
+      console.log(`[Upload Mode] Inserted ${gpsRes.count || 0} GPS records to Supabase.`);
+    }).catch(dbErr => {
+      console.warn('[Upload Mode Database Warning]:', dbErr.message);
+    });
+
+    console.log(`\n[Upload Mode] Session Created: ${sessionId}`);
+    console.log(`  Video: ${videoFile.filename} (${(videoFile.size / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`  GPS Records: ${formattedGpsRecords.length} points`);
+    console.log(`  Video Start: ${videoStartedAt}\n`);
+
+    // 10. Respond to Frontend
+    return res.status(200).json({
+      success: true,
+      session_id: sessionId,
+      bus_id: busId,
+      source_type: 'UPLOAD',
+      video_filename: videoFile.originalname,
+      video_url: `/uploads/${videoFile.filename}`,
+      video_started_at: videoStartedAt,
+      gps_records_count: formattedGpsRecords.length,
+      gps_records: formattedGpsRecords,
+      status: 'READY_FOR_PROCESSING'
+    });
+
+  } catch (err) {
+    console.error('[Upload API Exception]', err);
+    return res.status(500).json({ error: `Server error processing upload: ${err.message}` });
+  }
+});
+
+// POST /api/process-session/:sessionId: Standby hook for future AI processing pipeline
+app.post('/api/process-session/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+  console.log(`[AI Processing Standby] Session ${sessionId} verified and ready for future YOLO model execution.`);
+
+  res.json({
+    session_id: sessionId,
+    status: 'PROCESSING_READY',
+    video: 'READY',
+    gps: 'READY',
+    message: 'Session prepared for AI detection.'
+  });
+});
+
+// GET /api/session-gps/:sessionId: Retrieve GPS points for session
+app.get('/api/session-gps/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  const result = await supabase.getSessionGpsLocations(sessionId);
+  res.json(result);
+});
+
+// ==============================================================================
+// MODE 1: LIVE BUS SENSOR APIS (EXISTING & UNTOUCHED)
+// ==============================================================================
+
+// Session Lifecycle APIs (Live)
 app.post('/api/session/start', async (req, res) => {
   const { session_id, bus_id, video_started_at } = req.body;
 
@@ -49,18 +323,18 @@ app.post('/api/session/start', async (req, res) => {
 
   console.log(`[Session] Starting session ${session_id} for bus ${bus_id}`);
   
-  // Persist session to Supabase
   const dbResult = await supabase.createSession({
     session_id,
     bus_id,
+    source_type: 'LIVE',
     video_started_at: video_started_at || new Date().toISOString()
   });
 
-  // Broadcast session metadata to connected viewers in room
   const targetRoom = bus_id || 'BUS-101';
   io.to(targetRoom).emit('session-started', {
     session_id,
     bus_id,
+    source_type: 'LIVE',
     video_started_at: video_started_at || new Date().toISOString(),
     dbConfigured: supabase.isSupabaseConfigured()
   });
@@ -96,7 +370,7 @@ app.post('/api/session/end', async (req, res) => {
   });
 });
 
-// GPS Telemetry Ingestion Endpoint
+// GPS Telemetry Ingestion Endpoint (Live)
 app.post('/api/location', async (req, res) => {
   const {
     bus_id,
@@ -138,6 +412,7 @@ app.post('/api/location', async (req, res) => {
   const locationRecord = {
     bus_id,
     session_id,
+    source_type: 'LIVE',
     latitude: latNum,
     longitude: lonNum,
     accuracy: accuracy !== undefined && accuracy !== null ? Number(accuracy) : null,
@@ -147,12 +422,10 @@ app.post('/api/location', async (req, res) => {
     server_received_at
   };
 
-  // 1. Asynchronously persist to Supabase PostgreSQL (non-blocking)
   supabase.insertGpsLocation(locationRecord).catch((err) => {
     console.warn('[Supabase Background] Location insert error:', err.message);
   });
 
-  // 2. Broadcast real-time GPS update to connected laptop edge monitor via Socket.IO
   const targetRoom = bus_id || 'BUS-101';
   io.to(targetRoom).emit('gps-update', {
     ...locationRecord,
@@ -167,7 +440,6 @@ app.post('/api/location', async (req, res) => {
 });
 
 // Generate self-signed certificate for HTTPS
-// (Required by mobile browsers for camera & geolocation access over local Wi-Fi)
 const attrs = [{ name: 'commonName', value: 'drishtiyana.local' }];
 const pems = selfsigned.generate(attrs, { days: 30, keySize: 2048 });
 const sslOptions = {
@@ -191,54 +463,39 @@ io.attach(httpsServer);
 
 // WebRTC Signaling & Real-time Room Logic
 io.on('connection', (socket) => {
-  console.log(`[Signaling] Peer connected: ${socket.id}`);
-
-  // Client joins a specific room (e.g., BUS-101) as either 'sender' (Phone) or 'viewer' (Laptop)
   socket.on('join-room', ({ roomId, role }) => {
     socket.join(roomId);
     socket.roomId = roomId;
     socket.role = role;
-    console.log(`[Room] ${role.toUpperCase()} (${socket.id}) joined room: ${roomId}`);
 
-    // Notify other peers in the room
     socket.to(roomId).emit('peer-joined', {
       peerId: socket.id,
       role: role
     });
 
-    // Send initial DB configuration status to viewer
     socket.emit('db-status', {
       configured: supabase.isSupabaseConfigured()
     });
   });
 
-  // Forward WebRTC Offer to other peers in room
   socket.on('offer', ({ roomId, sdp }) => {
-    console.log(`[WebRTC] Forwarding OFFER in room ${roomId}`);
     socket.to(roomId).emit('offer', { sdp, from: socket.id });
   });
 
-  // Forward WebRTC Answer to other peers in room
   socket.on('answer', ({ roomId, sdp }) => {
-    console.log(`[WebRTC] Forwarding ANSWER in room ${roomId}`);
     socket.to(roomId).emit('answer', { sdp, from: socket.id });
   });
 
-  // Forward ICE Candidate to peers in room
   socket.on('ice-candidate', ({ roomId, candidate }) => {
     socket.to(roomId).emit('ice-candidate', { candidate, from: socket.id });
   });
 
-  // Relay Camera Status (e.g., 'LIVE' or 'OFFLINE')
   socket.on('camera-status', ({ roomId, status }) => {
-    console.log(`[Status] Camera status in room ${roomId}: ${status}`);
     socket.to(roomId).emit('camera-status', { status, from: socket.id });
   });
 
-  // Handle Disconnect
   socket.on('disconnect', () => {
     if (socket.roomId) {
-      console.log(`[Room] ${socket.role || 'Peer'} (${socket.id}) disconnected from room ${socket.roomId}`);
       socket.to(socket.roomId).emit('peer-left', {
         peerId: socket.id,
         role: socket.role
@@ -247,14 +504,13 @@ io.on('connection', (socket) => {
   });
 });
 
-// Helper function to detect local Wi-Fi / Ethernet IPv4 addresses
+// Detect local IPv4 addresses
 function getLocalIpAddresses() {
   const interfaces = os.networkInterfaces();
   const addresses = [];
 
   for (const name of Object.keys(interfaces)) {
     for (const net of interfaces[name]) {
-      // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
       if (net.family === 'IPv4' && !net.internal) {
         addresses.push(net.address);
       }
@@ -271,26 +527,15 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
 
     console.log('\n============================================================');
     console.log('       DRISHTIYANA - Bus Sensing & Edge Monitoring');
-    console.log('       Feature 1: Peer-to-Peer Live Camera Streaming');
-    console.log('       Feature 2: Real-time GPS & Timestamp Synchronization');
+    console.log('       Mode 1: Live WebRTC Streaming & GPS Telemetry');
+    console.log('       Mode 2: File Upload (Video + GPS) & Synchronized GIS');
     console.log('============================================================');
     console.log(`\n[Database Status]: ${supabase.isSupabaseConfigured() ? '🟢 Supabase Connected' : '⚪ Local Relay (Supabase unconfigured)'}`);
     console.log('\n[1] LAPTOP EDGE MONITOR (Open on this laptop):');
     console.log(`    👉 http://localhost:${HTTP_PORT}/viewer`);
     console.log(`    👉 https://localhost:${HTTPS_PORT}/viewer`);
-    console.log('\n[2] PHONE BUS SENSOR (Open on your mobile phone on the same Wi-Fi):');
-    console.log(`    👉 https://${primaryIp}:${HTTPS_PORT}/mobile  [RECOMMENDED - Camera + GPS]`);
-    console.log(`    👉 http://${primaryIp}:${HTTP_PORT}/mobile`);
-    if (localIps.length > 1) {
-      console.log('\n    (Alternative network IPs detected):');
-      localIps.slice(1).forEach(ip => {
-        console.log(`      - https://${ip}:${HTTPS_PORT}/mobile`);
-      });
-    }
-    console.log('\n[!] NOTE FOR PHONE CAMERA & LOCATION:');
-    console.log('    Mobile browsers require HTTPS for camera and GPS permissions.');
-    console.log('    When opening the https link on your phone, tap:');
-    console.log('    "Advanced" -> "Proceed to site (unsafe)" once.');
+    console.log('\n[2] PHONE BUS SENSOR (Open on mobile for Live Mode):');
+    console.log(`    👉 https://${primaryIp}:${HTTPS_PORT}/mobile`);
     console.log('============================================================\n');
   });
 });
