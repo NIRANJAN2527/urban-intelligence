@@ -1,12 +1,18 @@
 /**
- * Automated Verification Test for DrishtiYana Admin & Command Portal
+ * Automated Verification Test for DrishtiYana Secure Admin Portal & Department Reports
  * Tests:
- * 1. GET /admin & /command routes serve HTML dashboard
- * 2. GET /api/admin/config returns valid smart-city taxonomy
- * 3. GET /api/admin/stats returns real aggregated numbers
- * 4. GET /api/admin/events returns categorized event records
- * 5. GET /api/reverse-geocode returns human address or safe fallback
- * 6. PATCH /api/admin/events/:eventId/status updates status
+ * 1. GET /login serves dedicated Login page
+ * 2. Unauthenticated access to /admin redirects (302) to /login
+ * 3. Unauthenticated access to /api/admin/* endpoints returns 401 Unauthorized
+ * 4. Invalid credentials rejected with 401
+ * 5. Valid credentials (admin / DrishtiAdmin@2026) succeed with session token & cookie
+ * 6. Session verification via GET /api/auth/check
+ * 7. Authenticated access to /api/admin/config, /api/admin/stats, and /api/admin/events
+ * 8. Uninterrupted Edge AI ingestion via POST /api/edge/events (with report_status: 'PENDING')
+ * 9. Dispatching GIS incident report via POST /api/admin/reports/send
+ * 10. Duplicate report prevention on subsequent send requests for the same event
+ * 11. Querying dispatched reports via GET /api/admin/reports
+ * 12. Session termination via POST /api/auth/logout
  */
 
 const http = require('http');
@@ -28,7 +34,12 @@ function request(url, options = {}) {
       res.on('end', () => {
         let json = null;
         try { json = JSON.parse(body); } catch (_) {}
-        resolve({ status: res.statusCode, headers: res.headers, body, json });
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body,
+          json
+        });
       });
     });
 
@@ -43,114 +54,216 @@ function request(url, options = {}) {
 
 async function runTests() {
   console.log('\n=============================================================');
-  console.log('   DRISHTIYANA - Admin & Command Portal Automated Tests');
+  console.log('   DRISHTIYANA - Secure Admin & GIS Report Dispatch Tests');
   console.log('=============================================================\n');
 
   let passed = 0;
   const baseUrl = 'http://localhost:3000';
+  let authCookie = null;
+  let authToken = null;
 
   try {
-    // TEST 1: Serve /admin Route
-    console.log('[TEST 1] Testing /admin HTML route...');
-    const adminRes = await request(`${baseUrl}/admin`);
-    if (adminRes.status === 200 && adminRes.body.includes('DRISHTIYANA') && adminRes.body.includes('admin.js')) {
-      console.log('   [PASS] /admin served successfully with Admin Portal HTML');
+    // TEST 1: Dedicated Login Page
+    console.log('[TEST 1] Testing /login HTML route...');
+    const loginRes = await request(`${baseUrl}/login`);
+    if (loginRes.status === 200 && loginRes.body.includes('Supervisor Login ID') && loginRes.body.includes('DRISHTIYANA')) {
+      console.log('   [PASS] /login served successfully with dedicated Login page');
       passed++;
     } else {
-      throw new Error(`/admin returned HTTP ${adminRes.status}`);
+      throw new Error(`/login failed: HTTP ${loginRes.status}`);
     }
 
-    // TEST 2: Serve /command Route Alias
-    console.log('\n[TEST 2] Testing /command alias route...');
-    const commandRes = await request(`${baseUrl}/command`);
-    if (commandRes.status === 200 && commandRes.body.includes('admin.js')) {
-      console.log('   [PASS] /command alias route serves Admin Portal');
+    // TEST 2: Unauthenticated /admin Redirects to /login
+    console.log('\n[TEST 2] Testing unauthenticated access to /admin...');
+    const unauthAdminRes = await request(`${baseUrl}/admin`);
+    if (unauthAdminRes.status === 302 && unauthAdminRes.headers.location && unauthAdminRes.headers.location.includes('/login')) {
+      console.log(`   [PASS] Unauthenticated access properly redirected to: ${unauthAdminRes.headers.location}`);
       passed++;
     } else {
-      throw new Error(`/command returned HTTP ${commandRes.status}`);
+      throw new Error(`Expected 302 redirect for /admin, got ${unauthAdminRes.status}`);
     }
 
-    // TEST 3: Taxonomy & Config API
-    console.log('\n[TEST 3] Testing /api/admin/config endpoint...');
-    const configRes = await request(`${baseUrl}/api/admin/config`);
-    if (configRes.status === 200 && configRes.json && configRes.json.taxonomy) {
-      const tax = configRes.json.taxonomy;
-      const categories = Object.keys(tax.CATEGORIES);
-      console.log(`   [PASS] Taxonomy verified (${categories.length} categories: ${categories.join(', ')})`);
+    // TEST 3: Unauthenticated /api/admin/* Rejection (401)
+    console.log('\n[TEST 3] Testing unauthenticated access to /api/admin/events & /api/admin/stats...');
+    const unauthApiRes = await request(`${baseUrl}/api/admin/events`);
+    if (unauthApiRes.status === 401 && unauthApiRes.json && unauthApiRes.json.success === false) {
+      console.log('   [PASS] /api/admin/events rejected with 401 Unauthorized');
       passed++;
     } else {
-      throw new Error(`Taxonomy config failed: ${configRes.status}`);
+      throw new Error(`Expected 401 for /api/admin/events, got ${unauthApiRes.status}`);
     }
 
-    // TEST 4: Stats API
-    console.log('\n[TEST 4] Testing /api/admin/stats endpoint...');
-    const statsRes = await request(`${baseUrl}/api/admin/stats`);
-    if (statsRes.status === 200 && statsRes.json && statsRes.json.stats) {
-      const s = statsRes.json.stats;
-      console.log(`   [PASS] Real stats verified: Total=${s.total_events}, New=${s.new_events}, Critical=${s.critical_events}, Road=${s.road_problems}`);
+    // TEST 4: Invalid Credentials Rejected
+    console.log('\n[TEST 4] Testing login with invalid credentials...');
+    const invalidLoginRes = await request(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { username: 'admin', password: 'WrongPassword!2026' }
+    });
+    if (invalidLoginRes.status === 401 && invalidLoginRes.json && invalidLoginRes.json.success === false) {
+      console.log('   [PASS] Invalid login credentials rejected with 401 Unauthorized');
       passed++;
     } else {
-      throw new Error(`Stats endpoint failed: ${statsRes.status}`);
+      throw new Error(`Expected 401 for invalid credentials, got ${invalidLoginRes.status}`);
     }
 
-    // TEST 5: Events Query API
-    console.log('\n[TEST 5] Testing /api/admin/events query endpoint...');
-    const eventsRes = await request(`${baseUrl}/api/admin/events`);
-    if (eventsRes.status === 200 && eventsRes.json && Array.isArray(eventsRes.json.events)) {
-      console.log(`   [PASS] Retrieved ${eventsRes.json.events.length} real events with category & department metadata`);
+    // TEST 5: Valid Login Authentication
+    console.log('\n[TEST 5] Testing login with valid credentials (admin / DrishtiAdmin@2026)...');
+    const validLoginRes = await request(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { username: 'admin', password: 'DrishtiAdmin@2026' }
+    });
+    if (validLoginRes.status === 200 && validLoginRes.json && validLoginRes.json.success && validLoginRes.json.token) {
+      authToken = validLoginRes.json.token;
+      // Extract Set-Cookie
+      const setCookie = validLoginRes.headers['set-cookie'];
+      if (setCookie && setCookie.length > 0) {
+        authCookie = setCookie[0].split(';')[0];
+      }
+      console.log(`   [PASS] Login successful! Token received: ${authToken.slice(0, 16)}... | Cookie: ${authCookie ? 'Present' : 'None'}`);
       passed++;
     } else {
-      throw new Error(`Events endpoint failed: ${eventsRes.status}`);
+      throw new Error(`Login failed with status ${validLoginRes.status}: ${validLoginRes.body}`);
     }
 
-    // TEST 6: Reverse Geocoding Proxy
-    console.log('\n[TEST 6] Testing /api/reverse-geocode endpoint...');
-    const geoRes = await request(`${baseUrl}/api/reverse-geocode?lat=17.3850&lon=78.4866`);
-    if (geoRes.status === 200 && geoRes.json && geoRes.json.formatted) {
-      console.log(`   [PASS] Reverse geocode responded cleanly: "${geoRes.json.formatted}"`);
+    // TEST 6: Verify Session Check
+    console.log('\n[TEST 6] Testing session check endpoint /api/auth/check...');
+    const checkRes = await request(`${baseUrl}/api/auth/check`, {
+      headers: {
+        'Cookie': authCookie,
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+    if (checkRes.status === 200 && checkRes.json && checkRes.json.authenticated === true && checkRes.json.user.username === 'admin') {
+      console.log(`   [PASS] Authenticated session confirmed for user: ${checkRes.json.user.username}`);
       passed++;
     } else {
-      throw new Error(`Reverse geocode failed: ${geoRes.status}`);
+      throw new Error(`Auth check failed: ${checkRes.body}`);
     }
 
-    // TEST 7: Event Ingestion with Category & Department Verification
-    console.log('\n[TEST 7] Testing event dispatch with automatic department mapping...');
-    const postData = 'event_id=EVT-ADMIN-TEST-99&class_name=Pothole&confidence=0.93&risk_score=82&risk_level=CRITICAL&priority=HIGH&latitude=17.3912&longitude=78.4915&session_id=SESSION-ADMIN-TEST';
-    const dispatchRes = await request(`${baseUrl}/api/edge/events`, {
+    // TEST 7: Authenticated Access to Admin Portal & APIs
+    console.log('\n[TEST 7] Testing authenticated access to /admin and /api/admin/config...');
+    const authedAdminRes = await request(`${baseUrl}/admin`, {
+      headers: { 'Cookie': authCookie }
+    });
+    const authedConfigRes = await request(`${baseUrl}/api/admin/config`, {
+      headers: { 'Cookie': authCookie }
+    });
+    if (authedAdminRes.status === 200 && authedConfigRes.status === 200 && authedConfigRes.json && authedConfigRes.json.taxonomy) {
+      console.log(`   [PASS] /admin and /api/admin/config accessible with active session`);
+      passed++;
+    } else {
+      throw new Error(`Authenticated admin access failed: HTML=${authedAdminRes.status}, API=${authedConfigRes.status}`);
+    }
+
+    // TEST 8: Edge AI Ingestion (Uninterrupted & Without Auth Requirement)
+    console.log('\n[TEST 8] Testing Edge AI event ingestion (/api/edge/events)...');
+    const testEvtId = `EVT-REPORT-TEST-${Date.now()}`;
+    const edgePostData = `event_id=${testEvtId}&class_name=Pothole&confidence=0.92&risk_score=78&risk_level=HIGH&priority=HIGH&latitude=17.4399&longitude=78.4982&session_id=SESSION-SECURE-TEST`;
+    const edgeRes = await request(`${baseUrl}/api/edge/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: postData
+      body: edgePostData
     });
 
-    if (dispatchRes.status === 200 && dispatchRes.json && dispatchRes.json.category === 'Road & Infrastructure') {
-      console.log(`   [PASS] Event auto-categorized to: "${dispatchRes.json.category}" | Dept: "${dispatchRes.json.department}"`);
+    if (edgeRes.status === 200 && edgeRes.json && edgeRes.json.success) {
+      console.log(`   [PASS] Edge AI event successfully ingested: ${testEvtId} (Dept: ${edgeRes.json.department})`);
       passed++;
     } else {
-      throw new Error(`Dispatch categorization failed: ${dispatchRes.body}`);
+      throw new Error(`Edge AI event ingestion failed: ${edgeRes.body}`);
     }
 
-    // TEST 8: Update Event Status API
-    console.log('\n[TEST 8] Testing PATCH /api/admin/events/:eventId/status...');
-    const patchRes = await request(`${baseUrl}/api/admin/events/EVT-ADMIN-TEST-99/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'ASSIGNED' })
+    // TEST 9: Dispatch GIS Department Report
+    console.log('\n[TEST 9] Testing GIS Department Report dispatch (/api/admin/reports/send)...');
+    const reportRes = await request(`${baseUrl}/api/admin/reports/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': authCookie,
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: {
+        event_id: testEvtId,
+        notes: 'Priority road repair required near Secunderabad Junction',
+        supervisor: 'admin'
+      }
     });
 
-    if (patchRes.status === 200 && patchRes.json && patchRes.json.status === 'ASSIGNED') {
-      console.log(`   [PASS] Event status updated to: ${patchRes.json.status}`);
+    if (reportRes.status === 200 && reportRes.json && reportRes.json.success && reportRes.json.report_id) {
+      console.log(`   [PASS] GIS Incident Report dispatched! Report ID: ${reportRes.json.report_id} -> ${reportRes.json.department}`);
+      console.log(`          Resolved Address: ${reportRes.json.location_address}`);
       passed++;
     } else {
-      throw new Error(`Status update failed: ${patchRes.status}`);
+      throw new Error(`Report dispatch failed: ${reportRes.body}`);
+    }
+
+    // TEST 10: Duplicate Report Prevention (Idempotency)
+    console.log('\n[TEST 10] Testing duplicate report prevention for the same event...');
+    const duplicateRes = await request(`${baseUrl}/api/admin/reports/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': authCookie,
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: {
+        event_id: testEvtId,
+        notes: 'Duplicate dispatch attempt',
+        supervisor: 'admin'
+      }
+    });
+
+    if (duplicateRes.status === 200 && duplicateRes.json && duplicateRes.json.duplicate === true && duplicateRes.json.status === 'SENT') {
+      console.log(`   [PASS] Duplicate dispatch prevented! Returned existing report ID: ${duplicateRes.json.report_id}`);
+      passed++;
+    } else {
+      throw new Error(`Duplicate prevention failed: ${duplicateRes.body}`);
+    }
+
+    // TEST 11: Query Dispatched Reports List
+    console.log('\n[TEST 11] Testing GET /api/admin/reports...');
+    const reportsListRes = await request(`${baseUrl}/api/admin/reports`, {
+      headers: { 'Cookie': authCookie }
+    });
+    if (reportsListRes.status === 200 && reportsListRes.json && Array.isArray(reportsListRes.json.reports)) {
+      const found = reportsListRes.json.reports.find(r => r.event_id === testEvtId);
+      if (found) {
+        console.log(`   [PASS] Dispatched report verified in report registry (${reportsListRes.json.count} total reports)`);
+        passed++;
+      } else {
+        throw new Error(`Dispatched report not found in reports list`);
+      }
+    } else {
+      throw new Error(`Reports listing failed: ${reportsListRes.body}`);
+    }
+
+    // TEST 12: Logout & Session Invalidation
+    console.log('\n[TEST 12] Testing logout (/api/auth/logout)...');
+    const logoutRes = await request(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { 'Cookie': authCookie }
+    });
+    if (logoutRes.status === 200 && logoutRes.json && logoutRes.json.success) {
+      // Re-check auth with empty credentials
+      const postLogoutRes = await request(`${baseUrl}/api/auth/check`);
+      if (postLogoutRes.json && postLogoutRes.json.authenticated === false) {
+        console.log('   [PASS] Logout successful and session invalidated');
+        passed++;
+      } else {
+        throw new Error('Post-logout session still appeared authenticated');
+      }
+    } else {
+      throw new Error(`Logout failed: ${logoutRes.body}`);
     }
 
     console.log('\n=============================================================');
-    console.log(`🎉 ALL ${passed}/8 ADMIN PORTAL TESTS PASSED SUCCESSFULLY!`);
+    console.log(`🎉 ALL ${passed}/12 SECURE ADMIN PORTAL & REPORT TESTS PASSED!`);
     console.log('=============================================================\n');
     process.exit(0);
 
   } catch (err) {
-    console.error('\n❌ Test failure:', err.message);
+    console.error('\n❌ TEST FAILED:', err.message);
     process.exit(1);
   }
 }

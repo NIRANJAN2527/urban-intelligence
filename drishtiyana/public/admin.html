@@ -52,6 +52,16 @@
         <span class="status-dot active" id="adminServerDot"></span>
         <span id="adminServerText">SERVER: ONLINE</span>
       </span>
+
+      <!-- Supervisor Profile & Logout -->
+      <div style="display: flex; align-items: center; gap: 0.5rem; margin-left: 0.5rem; padding-left: 0.75rem; border-left: 1px solid var(--bg-card-border);">
+        <span class="badge" style="background: var(--bg-surface); border: 1px solid var(--color-primary-border); color: var(--color-primary); font-weight: 600;">
+          👤 <span id="adminUserDisplay">admin</span>
+        </span>
+        <button id="logoutBtn" class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.78rem; color: var(--color-offline); border-color: var(--color-offline-border); cursor: pointer;" type="button" title="Sign out of Admin Portal">
+          🚪 Logout
+        </button>
+      </div>
     </div>
   </header>
 
@@ -286,6 +296,27 @@
                     <option value="CLOSED">CLOSED</option>
                   </select>
                 </div>
+
+                <!-- Department Dispatch Action Card -->
+                <div class="report-action-card" style="margin-top: 0.85rem; padding: 0.85rem; background: var(--bg-surface); border: 1px solid var(--color-primary-border); border-radius: var(--radius-sm);">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em;">DEPARTMENT DISPATCH</span>
+                    <span class="badge" id="detailReportStatusBadge" style="font-size: 0.7rem;">PENDING</span>
+                  </div>
+                  <p style="font-size: 0.74rem; color: var(--text-secondary); margin: 0 0 0.5rem 0; line-height: 1.4;">
+                    Forward GIS telemetry, physical evidence image, and severity metrics to the responsible authority:
+                  </p>
+                  <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                    <span>🏢 Target:</span>
+                    <span id="detailDispatchDept" style="color: var(--color-primary);">ROAD MAINTENANCE</span>
+                  </div>
+                  <input type="text" id="reportNotesInput" placeholder="Add optional dispatch notes..." style="width: 100%; box-sizing: border-box; font-size: 0.78rem; padding: 0.4rem 0.6rem; border: 1px solid var(--bg-card-border); border-radius: 4px; margin-bottom: 0.5rem; outline: none; background: #fff;">
+                  <button id="sendReportBtn" type="button" class="btn btn-primary" style="width: 100%; padding: 0.5rem; font-size: 0.82rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer;">
+                    <span id="sendReportSpinner" class="spinner" style="display: none; width: 12px; height: 12px; border-width: 2px;"></span>
+                    <span id="sendReportBtnText">📤 Send Report to Department</span>
+                  </button>
+                  <div id="reportFeedback" style="display: none; margin-top: 0.5rem; font-size: 0.75rem; padding: 0.4rem 0.6rem; border-radius: 4px; line-height: 1.3;"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -337,6 +368,14 @@
               <option value="CLOSED">CLOSED</option>
             </select>
           </div>
+          <div class="filter-group">
+            <span class="filter-label">Report:</span>
+            <select id="filterReportStatusSelect" class="filter-select">
+              <option value="all">All Reports</option>
+              <option value="PENDING">Pending (Not Sent)</option>
+              <option value="SENT">Sent to Dept</option>
+            </select>
+          </div>
           <div style="margin-left: auto;">
             <button id="clearFiltersBtn" class="btn btn-secondary" style="padding: 0.4rem 0.85rem; font-size: 0.8rem;" type="button">
               Clear Filters
@@ -360,6 +399,7 @@
                   <th>Detected Time (UTC)</th>
                   <th>Bus ID</th>
                   <th>Department</th>
+                  <th>Report</th>
                   <th>Status</th>
                 </tr>
               </thead>

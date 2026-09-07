@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login - DRISHTIYANA Urban Intelligence Portal</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: radial-gradient(circle at 10% 20%, #F0FDF4 0%, #F7FAF8 90%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      color: var(--text-primary);
+    }
+
+    .login-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: #FFFFFF;
+      border: 1px solid var(--bg-card-border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 12px 36px rgba(21, 128, 61, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+      padding: 2.5rem 2.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .login-brand-icon {
+      width: 54px;
+      height: 54px;
+      background: var(--color-primary-light);
+      border: 1px solid var(--color-primary-border);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1rem;
+      color: var(--color-primary);
+      box-shadow: 0 4px 12px rgba(21, 128, 61, 0.12);
+    }
+
+    .login-brand-icon svg {
+      width: 28px;
+      height: 28px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .login-title {
+      font-size: 1.55rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      margin: 0 0 0.25rem 0;
+    }
+
+    .login-subtitle {
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: var(--color-primary);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
+    .login-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.75rem;
+      padding: 0.25rem 0.75rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--color-primary-border);
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--color-primary);
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.45rem;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 0.85rem;
+      color: var(--text-light);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 0.68rem 0.85rem 0.68rem 2.5rem;
+      font-size: 0.92rem;
+      font-family: inherit;
+      color: var(--text-primary);
+      background: #FFFFFF;
+      border: 1px solid var(--bg-card-border);
+      border-radius: var(--radius-sm);
+      transition: all 0.18s ease;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .form-input:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.12);
+    }
+
+    .pwd-toggle-btn {
+      position: absolute;
+      right: 0.75rem;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.2rem;
+      display: flex;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+
+    .pwd-toggle-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .error-alert {
+      display: none;
+      padding: 0.75rem 1rem;
+      background: var(--color-offline-bg);
+      border: 1px solid var(--color-offline-border);
+      border-radius: var(--radius-sm);
+      color: var(--color-offline);
+      font-size: 0.82rem;
+      font-weight: 500;
+      margin-bottom: 1.25rem;
+      align-items: center;
+      gap: 0.5rem;
+      animation: shake 0.4s ease;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-6px); }
+      40%, 80% { transform: translateX(6px); }
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 0.75rem 1.25rem;
+      background: var(--color-primary);
+      color: #FFFFFF;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.18s ease;
+      box-shadow: 0 4px 12px rgba(21, 128, 61, 0.22);
+    }
+
+    .btn-submit:hover:not(:disabled) {
+      background: var(--color-primary-hover);
+      box-shadow: 0 6px 16px rgba(21, 128, 61, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .login-footer-info {
+      margin-top: 1.75rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--bg-card-border);
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .login-footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+
+    .login-footer-links a {
+      color: var(--color-primary);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.78rem;
+    }
+
+    .login-footer-links a:hover {
+      text-decoration: underline;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #FFFFFF;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-brand-icon">
+          <svg viewBox="0 0 24 24">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <h1 class="login-title">DRISHTIYANA</h1>
+        <p class="login-subtitle">Command & Admin Portal</p>
+        <div class="login-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          Restricted Command Authorization
+        </div>
+      </div>
+
+      <div class="error-alert" id="errorMessage" role="alert">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span id="errorText">Invalid login credentials.</span>
+      </div>
+
+      <form id="loginForm" autocomplete="off">
+        <div class="form-group">
+          <label class="form-label" for="username">Supervisor Login ID</label>
+          <div class="input-wrapper">
+            <span class="input-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </span>
+            <input 
+              type="text" 
+              id="username" 
+              name="username" 
+              class="form-input" 
+              placeholder="e.g. admin" 
+              required 
+              autofocus 
+              autocomplete="username"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="input-wrapper">
+            <span class="input-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </span>
+            <input 
+              type="password" 
+              id="password" 
+              name="password" 
+              class="form-input" 
+              placeholder="Enter secure password" 
+              required 
+              autocomplete="current-password"
+            />
+            <button type="button" class="pwd-toggle-btn" id="togglePassword" aria-label="Toggle password visibility">
+              👁️
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">
+          <span id="btnSpinner" class="spinner" style="display: none;"></span>
+          <span id="btnText">Sign In to Command Portal</span>
+        </button>
+      </form>
+
+      <div class="login-footer-info">
+        Authorized administrative personnel only.<br>
+        All access and department dispatches are audited.
+        <div class="login-footer-links">
+          <a href="/viewer">Edge Monitor</a>
+          <span>•</span>
+          <a href="/mobile">Bus Sensor</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const submitBtn = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const btnSpinner = document.getElementById('btnSpinner');
+    const errorAlert = document.getElementById('errorMessage');
+    const errorText = document.getElementById('errorText');
+    const togglePasswordBtn = document.getElementById('togglePassword');
+
+    // Toggle password visibility
+    togglePasswordBtn.addEventListener('click', () => {
+      const isPassword = passwordInput.type === 'password';
+      passwordInput.type = isPassword ? 'text' : 'password';
+      togglePasswordBtn.textContent = isPassword ? '🙈' : '👁️';
+    });
+
+    // Check if already authenticated
+    async function checkExistingAuth() {
+      try {
+        const res = await fetch('/api/auth/check');
+        const data = await res.json();
+        if (data.authenticated) {
+          const params = new URLSearchParams(window.location.search);
+          const redirect = params.get('redirect') || '/admin';
+          window.location.replace(redirect);
+        }
+      } catch (err) {
+        // Continue to login screen
+      }
+    }
+    checkExistingAuth();
+
+    function showError(msg) {
+      errorText.textContent = msg;
+      errorAlert.style.display = 'flex';
+      errorAlert.style.animation = 'none';
+      void errorAlert.offsetWidth; // re-trigger animation
+      errorAlert.style.animation = 'shake 0.4s ease';
+    }
+
+    function hideError() {
+      errorAlert.style.display = 'none';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
+      if (!username || !password) {
+        showError('Please enter both supervisor ID and password.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      btnSpinner.style.display = 'inline-block';
+      btnText.textContent = 'Authenticating...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          // If token returned, also keep in sessionStorage as fallback
+          if (data.token) {
+            sessionStorage.setItem('drishtiyana_admin_token', data.token);
+            sessionStorage.setItem('drishtiyana_admin_user', JSON.stringify(data.user));
+          }
+
+          btnText.textContent = 'Access Granted. Redirecting...';
+          const params = new URLSearchParams(window.location.search);
+          const redirect = params.get('redirect') || '/admin';
+          window.location.replace(redirect);
+        } else {
+          showError(data.error || 'Invalid credentials. Please verify your supervisor ID and password.');
+          submitBtn.disabled = false;
+          btnSpinner.style.display = 'none';
+          btnText.textContent = 'Sign In to Command Portal';
+          passwordInput.value = '';
+          passwordInput.focus();
+        }
+      } catch (err) {
+        showError('Network error connecting to DrishtiYana server.');
+        submitBtn.disabled = false;
+        btnSpinner.style.display = 'none';
+        btnText.textContent = 'Sign In to Command Portal';
+      }
+    });
+  </script>
+</body>
+</html>

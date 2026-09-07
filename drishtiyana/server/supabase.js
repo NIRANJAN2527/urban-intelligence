@@ -219,7 +219,9 @@ async function insertPotholeEvent(eventData) {
       evidence_image_url: eventData.evidence_image_url,
       status: eventData.status || 'NEW',
       category: eventData.category || 'Road & Infrastructure',
-      department: eventData.department || 'ROAD MAINTENANCE'
+      department: eventData.department || 'ROAD MAINTENANCE',
+      report_status: eventData.report_status || 'PENDING',
+      report_id: eventData.report_id || null
     };
 
     const { data, error } = await supabase
@@ -266,6 +268,9 @@ async function getPotholeEvents(filters = {}) {
     }
     if (filters.status && filters.status !== 'all') {
       query = query.eq('status', filters.status.toUpperCase());
+    }
+    if (filters.report_status && filters.report_status !== 'all') {
+      query = query.eq('report_status', filters.report_status.toUpperCase());
     }
     if (filters.bus_id && filters.bus_id !== 'all') {
       query = query.eq('bus_id', filters.bus_id);
@@ -314,6 +319,81 @@ async function updateEventStatus(eventId, newStatus) {
   }
 }
 
+/**
+ * Save a structured department incident report to Supabase
+ */
+async function saveDepartmentReport(reportData) {
+  if (!isSupabaseConfigured()) {
+    return { success: false, reason: 'unconfigured' };
+  }
+
+  try {
+    const dbPayload = {
+      report_id: reportData.report_id,
+      event_id: reportData.event_id,
+      department: reportData.department,
+      category: reportData.category,
+      problem_type: reportData.problem_type,
+      priority: reportData.severity?.priority || 'MEDIUM',
+      risk_level: reportData.severity?.risk_level || 'MEDIUM',
+      risk_score: reportData.severity?.risk_score || null,
+      latitude: reportData.gis_location?.latitude || null,
+      longitude: reportData.gis_location?.longitude || null,
+      address: reportData.gis_location?.address || null,
+      evidence_image_url: reportData.evidence?.evidence_image_url || null,
+      status: reportData.status || 'SENT',
+      report_payload: reportData,
+      dispatched_by: reportData.dispatched_by || 'admin'
+    };
+
+    const { data, error } = await supabase
+      .from('department_reports')
+      .insert([dbPayload])
+      .select();
+
+    if (error) {
+      console.warn('[Supabase] Failed to save department report:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (err) {
+    console.error('[Supabase Exception] saveDepartmentReport:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Update event report status on pothole_events
+ */
+async function updateEventReportStatus(eventId, reportId, reportStatus = 'SENT') {
+  if (!isSupabaseConfigured()) {
+    return { success: false, reason: 'unconfigured' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('pothole_events')
+      .update({
+        report_status: reportStatus,
+        report_id: reportId,
+        status: 'ASSIGNED'
+      })
+      .eq('event_id', eventId)
+      .select();
+
+    if (error) {
+      console.warn('[Supabase] Failed to update event report status:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (err) {
+    console.error('[Supabase Exception] updateEventReportStatus:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   isSupabaseConfigured,
   createSession,
@@ -323,5 +403,7 @@ module.exports = {
   getSessionGpsLocations,
   insertPotholeEvent,
   getPotholeEvents,
-  updateEventStatus
+  updateEventStatus,
+  saveDepartmentReport,
+  updateEventReportStatus
 };

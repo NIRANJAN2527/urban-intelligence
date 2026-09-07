@@ -20,7 +20,9 @@ let clientAddressCache = new Map(); // key: "lat,lon", val: address
 
 const socket = io({ transports: ['websocket', 'polling'] });
 
-// DOM Elements - Navigation & Stats
+// DOM Elements - Navigation, User & Stats
+const adminUserDisplay = document.getElementById('adminUserDisplay');
+const logoutBtn = document.getElementById('logoutBtn');
 const adminTotalEventsBadge = document.getElementById('adminTotalEventsBadge');
 const adminDbBadge = document.getElementById('adminDbBadge');
 const adminDbDot = document.getElementById('adminDbDot');
@@ -69,12 +71,22 @@ const detailSessionId = document.getElementById('detailSessionId');
 const detailWorkOrder = document.getElementById('detailWorkOrder');
 const detailStatusSelect = document.getElementById('detailStatusSelect');
 
+// DOM Elements - Department Dispatch Action Card
+const detailReportStatusBadge = document.getElementById('detailReportStatusBadge');
+const detailDispatchDept = document.getElementById('detailDispatchDept');
+const reportNotesInput = document.getElementById('reportNotesInput');
+const sendReportBtn = document.getElementById('sendReportBtn');
+const sendReportBtnText = document.getElementById('sendReportBtnText');
+const sendReportSpinner = document.getElementById('sendReportSpinner');
+const reportFeedback = document.getElementById('reportFeedback');
+
 // DOM Elements - Filter Bar
 const filterSearchInput = document.getElementById('filterSearchInput');
 const filterCategorySelect = document.getElementById('filterCategorySelect');
 const filterRiskSelect = document.getElementById('filterRiskSelect');
 const filterPrioritySelect = document.getElementById('filterPrioritySelect');
 const filterStatusSelect = document.getElementById('filterStatusSelect');
+const filterReportStatusSelect = document.getElementById('filterReportStatusSelect');
 const clearFiltersBtn = document.getElementById('clearFiltersBtn');
 const refreshEventsBtn = document.getElementById('refreshEventsBtn');
 const recenterAdminMapBtn = document.getElementById('recenterAdminMapBtn');
@@ -89,14 +101,62 @@ const modalImg = document.getElementById('modalImg');
 const closeModalBtn = document.getElementById('closeModalBtn');
 
 // ==============================================================================
+// 1.1 AUTHENTICATION HELPERS
+// ==============================================================================
+function getAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  const token = sessionStorage.getItem('drishtiyana_admin_token');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function checkAuthentication() {
+  try {
+    const res = await fetch('/api/auth/check', { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!data.authenticated) {
+      window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname));
+      return false;
+    }
+    if (adminUserDisplay && data.user && data.user.username) {
+      adminUserDisplay.textContent = data.user.username;
+    }
+    return true;
+  } catch (err) {
+    window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname));
+    return false;
+  }
+}
+
+function setupLogoutHandler() {
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', headers: getAuthHeaders() });
+      } catch (e) {}
+      sessionStorage.removeItem('drishtiyana_admin_token');
+      sessionStorage.removeItem('drishtiyana_admin_user');
+      window.location.replace('/login');
+    });
+  }
+}
+
+// ==============================================================================
 // 2. INITIALIZATION ON LOAD
 // ==============================================================================
 window.addEventListener('DOMContentLoaded', async () => {
+  const isAuthed = await checkAuthentication();
+  if (!isAuthed) return;
+
   initGisMap();
   setupSidebarNavigation();
   setupFilterListeners();
   setupSocketListeners();
   setupImageModal();
+  setupReportSender();
+  setupLogoutHandler();
 
   await fetchStats();
   await fetchAndRenderEvents();
@@ -179,7 +239,11 @@ function fitMapToMarkers() {
 // ==============================================================================
 async function fetchStats() {
   try {
-    const res = await fetch('/api/admin/stats');
+    const res = await fetch('/api/admin/stats', { headers: getAuthHeaders() });
+    if (res.status === 401) {
+      window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
     if (!res.ok) return;
     const data = await res.json();
     if (!data.success || !data.stats) return;
@@ -209,20 +273,26 @@ async function fetchStats() {
 async function fetchAndRenderEvents() {
   try {
     const params = new URLSearchParams();
-    const cat = filterCategorySelect.value;
-    const risk = filterRiskSelect.value;
-    const prio = filterPrioritySelect.value;
-    const stat = filterStatusSelect.value;
-    const q = filterSearchInput.value.trim();
+    const cat = filterCategorySelect ? filterCategorySelect.value : 'all';
+    const risk = filterRiskSelect ? filterRiskSelect.value : 'all';
+    const prio = filterPrioritySelect ? filterPrioritySelect.value : 'all';
+    const stat = filterStatusSelect ? filterStatusSelect.value : 'all';
+    const repStat = filterReportStatusSelect ? filterReportStatusSelect.value : 'all';
+    const q = filterSearchInput ? filterSearchInput.value.trim() : '';
 
     if (cat !== 'all') params.append('category', cat);
     if (risk !== 'all') params.append('risk_level', risk);
     if (prio !== 'all') params.append('priority', prio);
     if (stat !== 'all') params.append('status', stat);
+    if (repStat !== 'all') params.append('report_status', repStat);
     if (q) params.append('search', q);
 
     const url = `/api/admin/events?${params.toString()}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: getAuthHeaders() });
+    if (res.status === 401) {
+      window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
@@ -342,6 +412,14 @@ function renderEventsTable(events) {
       ? new Date(evt.created_at).toISOString().slice(0, 19).replace('T', ' ')
       : '--';
 
+    const repStatus = (evt.report_status || 'PENDING').toUpperCase();
+    let reportBadgeHtml = `<span class="badge" style="background: var(--bg-muted); color: var(--text-muted); font-size: 0.72rem;">PENDING</span>`;
+    if (repStatus === 'SENT') {
+      reportBadgeHtml = `<span class="badge" style="background: var(--color-primary-light); color: var(--color-primary); border: 1px solid var(--color-primary-border); font-size: 0.72rem; font-weight: 700;">✓ SENT</span>`;
+    } else if (repStatus === 'FAILED') {
+      reportBadgeHtml = `<span class="badge" style="background: var(--color-offline-bg); color: var(--color-offline); font-size: 0.72rem;">FAILED</span>`;
+    }
+
     tr.innerHTML = `
       <td><strong style="font-family: var(--font-mono); font-size: 0.8rem;">${evt.event_id}</strong></td>
       <td><span style="font-size: 0.8rem; color: var(--text-secondary);">${evt.category || 'Road'}</span></td>
@@ -353,6 +431,7 @@ function renderEventsTable(events) {
       <td style="font-size: 0.78rem; color: var(--text-muted);">${timeText}</td>
       <td><span class="badge">${evt.bus_id || 'BUS-101'}</span></td>
       <td><span class="badge-dept">${evt.department || 'ROAD MAINTENANCE'}</span></td>
+      <td>${reportBadgeHtml}</td>
       <td><span class="badge-status ${statClass}">${stat}</span></td>
     `;
 
@@ -442,6 +521,45 @@ async function selectEventById(eventId, panMap = true) {
   } else {
     detailAddress.textContent = 'Address unavailable (No GPS)';
   }
+
+  // Department Dispatch Action Card UI State
+  const repStatus = (evt.report_status || 'PENDING').toUpperCase();
+  if (detailReportStatusBadge) {
+    detailReportStatusBadge.textContent = repStatus;
+    if (repStatus === 'SENT') {
+      detailReportStatusBadge.style.background = 'var(--color-primary-light)';
+      detailReportStatusBadge.style.color = 'var(--color-primary)';
+      detailReportStatusBadge.style.border = '1px solid var(--color-primary-border)';
+    } else {
+      detailReportStatusBadge.style.background = 'var(--bg-muted)';
+      detailReportStatusBadge.style.color = 'var(--text-muted)';
+      detailReportStatusBadge.style.border = '1px solid var(--bg-card-border)';
+    }
+  }
+
+  if (detailDispatchDept) {
+    detailDispatchDept.textContent = evt.department || 'ROAD MAINTENANCE';
+  }
+
+  if (reportNotesInput) {
+    reportNotesInput.value = '';
+  }
+
+  if (reportFeedback) {
+    reportFeedback.style.display = 'none';
+  }
+
+  if (sendReportBtn && sendReportBtnText) {
+    if (repStatus === 'SENT') {
+      sendReportBtn.disabled = true;
+      sendReportBtn.style.opacity = '0.75';
+      sendReportBtnText.textContent = `✓ Report Sent to ${evt.department || 'Dept'} (${evt.report_id || 'SENT'})`;
+    } else {
+      sendReportBtn.disabled = false;
+      sendReportBtn.style.opacity = '1';
+      sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+    }
+  }
 }
 
 // Make selectEventById globally callable from Leaflet popup buttons
@@ -454,7 +572,7 @@ async function resolveAddress(lat, lon) {
   }
 
   try {
-    const res = await fetch(`/api/reverse-geocode?lat=${lat}&lon=${lon}`);
+    const res = await fetch(`/api/reverse-geocode?lat=${lat}&lon=${lon}`, { headers: getAuthHeaders() });
     if (!res.ok) return 'Address unavailable';
     const data = await res.json();
     const formatted = data.formatted || 'Address unavailable';
@@ -534,8 +652,8 @@ function setupSidebarNavigation() {
 // 9. FILTER LISTENERS
 // ==============================================================================
 function setupFilterListeners() {
-  [filterCategorySelect, filterRiskSelect, filterPrioritySelect, filterStatusSelect].forEach(select => {
-    select.addEventListener('change', () => fetchAndRenderEvents());
+  [filterCategorySelect, filterRiskSelect, filterPrioritySelect, filterStatusSelect, filterReportStatusSelect].forEach(select => {
+    if (select) select.addEventListener('change', () => fetchAndRenderEvents());
   });
 
   let debounceTimer;
@@ -550,6 +668,7 @@ function setupFilterListeners() {
     filterRiskSelect.value = 'all';
     filterPrioritySelect.value = 'all';
     filterStatusSelect.value = 'all';
+    if (filterReportStatusSelect) filterReportStatusSelect.value = 'all';
     fetchAndRenderEvents();
   });
 
@@ -570,7 +689,7 @@ function setupFilterListeners() {
       try {
         const res = await fetch(`/api/admin/events/${selectedEventId}/status`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ status: newStatus })
         });
         if (res.ok) {
@@ -585,6 +704,98 @@ function setupFilterListeners() {
       }
     });
   }
+}
+
+// ==============================================================================
+// 9.1 DEPARTMENT REPORT DISPATCHER
+// ==============================================================================
+function setupReportSender() {
+  if (!sendReportBtn) return;
+
+  sendReportBtn.addEventListener('click', async () => {
+    if (!selectedEventId) return;
+    const evt = allEventsCache.find(e => e.event_id === selectedEventId);
+    if (!evt) return;
+
+    if (evt.report_status === 'SENT') {
+      if (reportFeedback) {
+        reportFeedback.style.display = 'block';
+        reportFeedback.style.background = 'var(--bg-surface)';
+        reportFeedback.style.color = 'var(--color-primary)';
+        reportFeedback.style.border = '1px solid var(--color-primary-border)';
+        reportFeedback.textContent = `Report was already dispatched to ${evt.department || 'department'} (ID: ${evt.report_id || 'SENT'})`;
+      }
+      return;
+    }
+
+    sendReportBtn.disabled = true;
+    if (sendReportSpinner) sendReportSpinner.style.display = 'inline-block';
+    if (sendReportBtnText) sendReportBtnText.textContent = 'Dispatching to Department...';
+    if (reportFeedback) reportFeedback.style.display = 'none';
+
+    try {
+      const notes = reportNotesInput ? reportNotesInput.value.trim() : '';
+      const res = await fetch('/api/admin/reports/send', {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          event_id: selectedEventId,
+          notes: notes
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        evt.report_status = 'SENT';
+        evt.report_id = data.report_id;
+
+        // Update Drawer State
+        if (detailReportStatusBadge) {
+          detailReportStatusBadge.textContent = 'SENT';
+          detailReportStatusBadge.style.background = 'var(--color-primary-light)';
+          detailReportStatusBadge.style.color = 'var(--color-primary)';
+          detailReportStatusBadge.style.border = '1px solid var(--color-primary-border)';
+        }
+        if (sendReportBtnText) sendReportBtnText.textContent = `✓ Report Sent to ${data.department || 'Dept'} (${data.report_id})`;
+        sendReportBtn.disabled = true;
+        sendReportBtn.style.opacity = '0.75';
+
+        if (reportFeedback) {
+          reportFeedback.style.display = 'block';
+          reportFeedback.style.background = 'var(--color-primary-light)';
+          reportFeedback.style.color = 'var(--color-primary)';
+          reportFeedback.style.border = '1px solid var(--color-primary-border)';
+          reportFeedback.textContent = `✓ Successfully dispatched GIS Report to ${data.department} (ID: ${data.report_id})`;
+        }
+
+        renderEventsTable(allEventsCache);
+        await fetchStats();
+      } else {
+        if (reportFeedback) {
+          reportFeedback.style.display = 'block';
+          reportFeedback.style.background = 'var(--color-offline-bg)';
+          reportFeedback.style.color = 'var(--color-offline)';
+          reportFeedback.style.border = '1px solid var(--color-offline-border)';
+          reportFeedback.textContent = data.error || 'Failed to dispatch report to department';
+        }
+        sendReportBtn.disabled = false;
+        if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+      }
+    } catch (err) {
+      if (reportFeedback) {
+        reportFeedback.style.display = 'block';
+        reportFeedback.style.background = 'var(--color-offline-bg)';
+        reportFeedback.style.color = 'var(--color-offline)';
+        reportFeedback.style.border = '1px solid var(--color-offline-border)';
+        reportFeedback.textContent = 'Network error while dispatching report';
+      }
+      sendReportBtn.disabled = false;
+      if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+    } finally {
+      if (sendReportSpinner) sendReportSpinner.style.display = 'none';
+    }
+  });
 }
 
 // ==============================================================================
@@ -630,6 +841,21 @@ function setupSocketListeners() {
         selectEventById(event_id, false);
       }
     }
+  });
+
+  // Real-time listener for dispatched department reports
+  socket.on('department-report-sent', ({ report_id, event_id, department, status }) => {
+    console.log('[Admin Portal] Real-time department report dispatched:', report_id, event_id);
+    const evt = allEventsCache.find(e => e.event_id === event_id);
+    if (evt) {
+      evt.report_status = status || 'SENT';
+      evt.report_id = report_id;
+      renderEventsTable(allEventsCache);
+      if (selectedEventId === event_id) {
+        selectEventById(event_id, false);
+      }
+    }
+    fetchStats();
   });
 }
 

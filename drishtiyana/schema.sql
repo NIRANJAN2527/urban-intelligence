@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS pothole_events (
     status TEXT DEFAULT 'NEW',
     category TEXT DEFAULT 'Road & Infrastructure',
     department TEXT DEFAULT 'ROAD MAINTENANCE',
+    report_status TEXT DEFAULT 'PENDING', -- 'PENDING', 'SENT', 'FAILED'
+    report_id TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -91,6 +93,35 @@ CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priorit
 CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_report_status ON pothole_events(report_status);
+
+-- ==============================================================================
+-- 4. Table: department_reports
+-- Stores structured GIS incident reports dispatched to municipal departments
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS department_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL,
+    department TEXT NOT NULL,
+    category TEXT NOT NULL,
+    problem_type TEXT NOT NULL,
+    priority TEXT,
+    risk_level TEXT,
+    risk_score INTEGER,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    address TEXT,
+    evidence_image_url TEXT,
+    status TEXT DEFAULT 'SENT', -- 'SENT', 'PENDING', 'FAILED'
+    report_payload JSONB,
+    dispatched_by TEXT DEFAULT 'admin',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_department_reports_event_id ON department_reports(event_id);
+CREATE INDEX IF NOT EXISTS idx_department_reports_department ON department_reports(department);
+CREATE INDEX IF NOT EXISTS idx_department_reports_status ON department_reports(status);
 
 -- ==============================================================================
 -- Migration statements if tables already exist:
@@ -106,9 +137,12 @@ ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS priority TEXT;
 ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'NEW';
 ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Road & Infrastructure';
 ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS department TEXT DEFAULT 'ROAD MAINTENANCE';
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS report_status TEXT DEFAULT 'PENDING';
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS report_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_report_status ON pothole_events(report_status);
 

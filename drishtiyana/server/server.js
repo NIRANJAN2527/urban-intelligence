@@ -4,17 +4,29 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const crypto = require('crypto');
+const dotenv = require('dotenv');
 const multer = require('multer');
 const { Server } = require('socket.io');
 const selfsigned = require('selfsigned');
 const supabase = require('./supabase');
 
+// Load environment variables
+dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
 const app = express();
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3001;
 
-// Body parser for JSON payloads
+// Configurable Admin Credentials (from .env)
+const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'DrishtiAdmin@2026';
+const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || 'drishtiyana_secure_admin_jwt_secret_2026';
+
+// Body parsers
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -26,16 +38,89 @@ if (!fs.existsSync(evidenceDir)) {
   fs.mkdirSync(evidenceDir, { recursive: true });
 }
 
-// Serve uploaded videos and evidence images as static streaming media
+// Serve uploaded evidence frames
 app.use('/uploads', express.static(uploadsDir));
 
 // Serve static frontend files from public/
 const publicDir = path.join(__dirname, '..', 'public');
 app.use(express.static(publicDir));
 
-// Clean user-facing routes
+// ==============================================================================
+// AUTHENTICATION & SESSION MANAGEMENT
+// ==============================================================================
+
+function generateSessionToken(username) {
+  const payload = JSON.stringify({
+    username,
+    exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours validity
+  });
+  const b64Payload = Buffer.from(payload).toString('base64url');
+  const signature = crypto.createHmac('sha256', ADMIN_SESSION_SECRET).update(b64Payload).digest('base64url');
+  return `${b64Payload}.${signature}`;
+}
+
+function verifySessionToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [b64Payload, signature] = parts;
+  const expectedSig = crypto.createHmac('sha256', ADMIN_SESSION_SECRET).update(b64Payload).digest('base64url');
+  if (signature !== expectedSig) return null;
+
+  try {
+    const payloadStr = Buffer.from(b64Payload, 'base64url').toString('utf8');
+    const payload = JSON.parse(payloadStr);
+    if (!payload.exp || Date.now() > payload.exp) return null;
+    return payload;
+  } catch (_) {
+    return null;
+  }
+}
+
+function parseCookies(req) {
+  const list = {};
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    if (parts.length >= 2) {
+      list[parts[0].trim()] = decodeURIComponent(parts.slice(1).join('=').trim());
+    }
+  });
+  return list;
+}
+
+function requireAdminAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else {
+    const cookies = parseCookies(req);
+    token = cookies.drishtiyana_admin_token;
+  }
+
+  const session = verifySessionToken(token);
+  if (!session) {
+    if (req.accepts('html') && !req.path.startsWith('/api/')) {
+      return res.redirect('/login');
+    }
+    return res.status(401).json({ success: false, error: 'Unauthorized: Admin authentication required' });
+  }
+
+  req.adminUser = session;
+  next();
+}
+
+// ==============================================================================
+// USER-FACING ROUTES
+// ==============================================================================
 app.get('/', (req, res) => {
   res.redirect('/viewer');
+});
+
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(publicDir, 'login.html'));
 });
 
 app.get('/mobile', (req, res) => {
@@ -46,12 +131,49 @@ app.get('/viewer', (req, res) => {
   res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 
-app.get('/admin', (req, res) => {
+// Protected Admin Portal routes
+app.get('/admin', requireAdminAuth, (req, res) => {
   res.sendFile(path.join(publicDir, 'admin.html'));
 });
 
-app.get('/command', (req, res) => {
+app.get('/command', requireAdminAuth, (req, res) => {
   res.sendFile(path.join(publicDir, 'admin.html'));
+});
+
+// ==============================================================================
+// AUTHENTICATION APIS
+// ==============================================================================
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (username === ADMIN_LOGIN_ID && password === ADMIN_PASSWORD) {
+    const token = generateSessionToken(username);
+    res.setHeader('Set-Cookie', `drishtiyana_admin_token=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400`);
+    return res.json({
+      success: true,
+      token,
+      user: { username }
+    });
+  }
+  return res.status(401).json({ success: false, error: 'Invalid admin username or password' });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.setHeader('Set-Cookie', `drishtiyana_admin_token=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  return res.json({ success: true, message: 'Logged out successfully' });
+});
+
+app.get('/api/auth/check', (req, res) => {
+  const cookies = parseCookies(req);
+  const authHeader = req.headers.authorization;
+  const token = (authHeader && authHeader.startsWith('Bearer '))
+    ? authHeader.slice(7).trim()
+    : cookies.drishtiyana_admin_token;
+
+  const session = verifySessionToken(token);
+  if (session) {
+    return res.json({ authenticated: true, user: { username: session.username } });
+  }
+  return res.json({ authenticated: false });
 });
 
 // Configure Multer for File Uploads
@@ -351,6 +473,7 @@ const EVENT_TAXONOMY = {
       problems: [
         { type: 'Pothole', department: 'ROAD MAINTENANCE' },
         { type: 'Road Crack', department: 'ROAD MAINTENANCE' },
+        { type: 'Damaged Road', department: 'ROAD MAINTENANCE' },
         { type: 'Damaged Divider', department: 'ROAD MAINTENANCE' },
         { type: 'Missing Zebra Crossing', department: 'ROAD MAINTENANCE' },
         { type: 'Damaged Signboard', department: 'TRAFFIC' },
@@ -365,7 +488,8 @@ const EVENT_TAXONOMY = {
       problems: [
         { type: 'Traffic Congestion', department: 'TRAFFIC' },
         { type: 'Traffic Bottleneck', department: 'TRAFFIC' },
-        { type: 'Vehicle Density', department: 'TRAFFIC' }
+        { type: 'Vehicle Density', department: 'TRAFFIC' },
+        { type: 'Route Delay', department: 'TRAFFIC' }
       ]
     },
     SAFETY: {
@@ -409,6 +533,9 @@ function resolveEventTaxonomy(className) {
 
 // In-memory store for session & local fallback
 const inMemoryEvents = new Map();
+
+// In-memory store for dispatched department reports
+const persistedReports = new Map();
 
 // Reverse Geocoding Cache (key: "lat,lon" rounded to 4 decimals)
 const reverseGeocodeCache = new Map();
@@ -544,6 +671,8 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       category: req.body.category || taxonomy.category,
       department: req.body.department || taxonomy.department,
       status: req.body.status || 'NEW',
+      report_status: req.body.report_status || 'PENDING',
+      report_id: req.body.report_id || null,
       work_order_id: req.body.work_order_id || null,
       session_id: session_id || 'UNKNOWN',
       bus_id: bus_id || 'BUS-101',
@@ -610,11 +739,11 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
 });
 
 // ==============================================================================
-// ADMIN & COMMAND PORTAL APIS
+// ADMIN & COMMAND PORTAL APIS (SECURED)
 // ==============================================================================
 
 // GET /api/admin/config: Returns taxonomy definitions and departments
-app.get('/api/admin/config', (req, res) => {
+app.get('/api/admin/config', requireAdminAuth, (req, res) => {
   res.json({
     success: true,
     taxonomy: EVENT_TAXONOMY,
@@ -625,14 +754,15 @@ app.get('/api/admin/config', (req, res) => {
       'MUNICIPAL',
       'POLICE / EMERGENCY'
     ],
-    statuses: ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
+    statuses: ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+    report_statuses: ['PENDING', 'SENT', 'FAILED']
   });
 });
 
 // GET /api/admin/events: Retrieves real events with filters and search
-app.get('/api/admin/events', async (req, res) => {
+app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
   try {
-    const { category, problem, risk_level, priority, department, status, bus_id, search, limit } = req.query;
+    const { category, problem, risk_level, priority, department, status, report_status, bus_id, search, limit } = req.query;
 
     let allEvents = [];
     if (supabase.isSupabaseConfigured()) {
@@ -642,6 +772,7 @@ app.get('/api/admin/events', async (req, res) => {
         priority,
         department,
         status,
+        report_status,
         bus_id,
         limit: limit ? parseInt(limit, 10) : 200
       });
@@ -679,6 +810,8 @@ app.get('/api/admin/events', async (req, res) => {
         class_name: evt.class_name || evt.problem || tax.problem,
         department: evt.department || tax.department,
         status: evt.status || 'NEW',
+        report_status: evt.report_status || 'PENDING',
+        report_id: evt.report_id || null,
         work_order_id: evt.work_order_id || null,
         confidence: evt.confidence !== undefined ? parseFloat(evt.confidence) : 0.85,
         risk_score: evt.risk_score !== undefined && evt.risk_score !== null ? parseInt(evt.risk_score, 10) : 50,
@@ -718,6 +851,9 @@ app.get('/api/admin/events', async (req, res) => {
     if (status && status !== 'all') {
       enriched = enriched.filter(e => e.status.toUpperCase() === status.toUpperCase());
     }
+    if (report_status && report_status !== 'all') {
+      enriched = enriched.filter(e => (e.report_status || 'PENDING').toUpperCase() === report_status.toUpperCase());
+    }
     if (bus_id && bus_id !== 'all') {
       enriched = enriched.filter(e => e.bus_id.toLowerCase().includes(bus_id.toLowerCase()));
     }
@@ -744,7 +880,7 @@ app.get('/api/admin/events', async (req, res) => {
 });
 
 // GET /api/admin/stats: Real summary counts for Overview cards
-app.get('/api/admin/stats', async (req, res) => {
+app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
   try {
     let allEvents = [];
     if (supabase.isSupabaseConfigured()) {
@@ -767,6 +903,7 @@ app.get('/api/admin/stats', async (req, res) => {
     let roadProblems = 0;
     let trafficProblems = 0;
     let safetyIncidents = 0;
+    let reportsDispatched = 0;
     const byDepartment = {};
     const byCategory = {};
 
@@ -777,10 +914,12 @@ app.get('/api/admin/stats', async (req, res) => {
       const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
       const prio = (evt.priority || 'MEDIUM').toUpperCase();
       const stat = (evt.status || 'NEW').toUpperCase();
+      const repStat = (evt.report_status || 'PENDING').toUpperCase();
 
       if (stat === 'NEW') newEvents++;
       if (prio === 'HIGH') highPriority++;
       if (rLvl === 'CRITICAL') criticalEvents++;
+      if (repStat === 'SENT') reportsDispatched++;
 
       if (cat.toLowerCase().includes('road')) roadProblems++;
       else if (cat.toLowerCase().includes('traffic')) trafficProblems++;
@@ -800,6 +939,7 @@ app.get('/api/admin/stats', async (req, res) => {
         road_problems: roadProblems,
         traffic_problems: trafficProblems,
         safety_incidents: safetyIncidents,
+        reports_dispatched: reportsDispatched,
         by_department: byDepartment,
         by_category: byCategory
       }
@@ -811,7 +951,7 @@ app.get('/api/admin/stats', async (req, res) => {
 });
 
 // GET /api/reverse-geocode: Cached reverse geocoding proxy
-app.get('/api/reverse-geocode', async (req, res) => {
+app.get('/api/reverse-geocode', requireAdminAuth, async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
 
@@ -824,7 +964,7 @@ app.get('/api/reverse-geocode', async (req, res) => {
 });
 
 // PATCH /api/admin/events/:eventId/status: Update event status
-app.patch('/api/admin/events/:eventId/status', async (req, res) => {
+app.patch('/api/admin/events/:eventId/status', requireAdminAuth, async (req, res) => {
   const { eventId } = req.params;
   const { status } = req.body;
 
@@ -853,6 +993,145 @@ app.patch('/api/admin/events/:eventId/status', async (req, res) => {
   });
 
   return res.json({ success: true, event_id: eventId, status: normalizedStatus });
+});
+
+// POST /api/admin/reports/send: Send GIS incident report to responsible department (Idempotent)
+app.post('/api/admin/reports/send', requireAdminAuth, async (req, res) => {
+  try {
+    const { event_id, notes, supervisor } = req.body;
+    if (!event_id) {
+      return res.status(400).json({ success: false, error: 'Missing required field: event_id' });
+    }
+
+    // Find the event (check in-memory first, then DB)
+    let event = inMemoryEvents.get(event_id);
+    if (!event && supabase.isSupabaseConfigured()) {
+      const dbRes = await supabase.getPotholeEvents({ limit: 500 });
+      if (dbRes.success && Array.isArray(dbRes.data)) {
+        event = dbRes.data.find(e => e.event_id === event_id);
+      }
+    }
+
+    if (!event) {
+      return res.status(404).json({ success: false, error: `Event not found: ${event_id}` });
+    }
+
+    // Duplicate prevention: If report is already sent for this event, do not create duplicate
+    if (event.report_status === 'SENT' && event.report_id) {
+      return res.status(200).json({
+        success: true,
+        duplicate: true,
+        message: 'Report already dispatched to department for this incident',
+        report_id: event.report_id,
+        status: 'SENT',
+        event_id: event.event_id
+      });
+    }
+
+    const taxonomy = resolveEventTaxonomy(event.class_name || event.problem || 'Pothole');
+    const department = event.department || taxonomy.department;
+    const category = event.category || taxonomy.category;
+    const problem = event.class_name || event.problem || taxonomy.problem;
+
+    // Resolve address if coordinates are available
+    let locationAddress = 'Address unavailable';
+    if (event.latitude && event.longitude) {
+      const geo = await reverseGeocode(event.latitude, event.longitude);
+      locationAddress = geo.formatted || `${event.latitude.toFixed(6)}, ${event.longitude.toFixed(6)}`;
+    }
+
+    const report_id = `RPT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const nowIso = new Date().toISOString();
+
+    const reportRecord = {
+      report_id,
+      event_id: event.event_id,
+      department,
+      category,
+      problem,
+      priority: event.priority || 'MEDIUM',
+      risk_score: event.risk_score !== undefined && event.risk_score !== null ? parseInt(event.risk_score, 10) : 50,
+      risk_level: event.risk_level || 'MEDIUM',
+      status: 'SENT',
+      latitude: event.latitude || null,
+      longitude: event.longitude || null,
+      location_address: locationAddress,
+      evidence_image_url: event.evidence_image_url || null,
+      notes: notes || 'Automated GIS incident report forwarded by DrishtiYana Command Center',
+      dispatched_by: req.adminUser ? req.adminUser.username : (supervisor || 'admin'),
+      dispatched_at: nowIso,
+      created_at: nowIso
+    };
+
+    // Update in-memory event status & report reference
+    event.report_status = 'SENT';
+    event.report_id = report_id;
+    inMemoryEvents.set(event.event_id, event);
+    persistedReports.set(report_id, reportRecord);
+
+    // Persist to Supabase if configured
+    let dbSaved = false;
+    if (supabase.isSupabaseConfigured()) {
+      const saveRes = await supabase.saveDepartmentReport(reportRecord);
+      const updateRes = await supabase.updateEventReportStatus(event.event_id, 'SENT', report_id);
+      dbSaved = saveRes.success && updateRes.success;
+    }
+
+    // Broadcast report event to connected monitors
+    io.emit('department-report-sent', {
+      report_id,
+      event_id: event.event_id,
+      department,
+      status: 'SENT',
+      report: reportRecord
+    });
+
+    console.log(`[Department Report] Dispatched ${report_id} for ${event.event_id} -> ${department} (Addr: ${locationAddress})`);
+
+    return res.status(200).json({
+      success: true,
+      report_id,
+      event_id: event.event_id,
+      department,
+      status: 'SENT',
+      location_address: locationAddress,
+      dbSaved,
+      report: reportRecord
+    });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/reports/send:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/reports: List all dispatched department reports
+app.get('/api/admin/reports', requireAdminAuth, async (req, res) => {
+  try {
+    const { department, status, limit } = req.query;
+    let reports = Array.from(persistedReports.values());
+
+    if (department && department !== 'all') {
+      reports = reports.filter(r => r.department.toLowerCase().includes(department.toLowerCase()));
+    }
+    if (status && status !== 'all') {
+      reports = reports.filter(r => r.status.toUpperCase() === status.toUpperCase());
+    }
+
+    reports.sort((a, b) => new Date(b.dispatched_at || 0) - new Date(a.dispatched_at || 0));
+
+    if (limit) {
+      reports = reports.slice(0, parseInt(limit, 10));
+    }
+
+    return res.json({
+      success: true,
+      count: reports.length,
+      reports
+    });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/reports:', err.message);
+    return res.status(500).json({ success: false, error: err.message, reports: [] });
+  }
 });
 
 // ==============================================================================
