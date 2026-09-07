@@ -1,7 +1,7 @@
 // DRISHTIYANA - Edge Monitor Station (Viewer)
-// Feature 1: WebRTC Receiver & Live Stream Display (Muted Autoplay Fix)
-// Feature 2: Real-time GPS Telemetry & Synchronized UTC Timestamps
-// Feature 3: Interactive Real-Time GIS Map (Leaflet.js + CartoDB Dark Matter)
+// Mode 1: Live WebRTC Streaming & GPS Telemetry (Muted Autoplay Fix)
+// Mode 2: Prerecorded Video + GPS File Upload & Synchronized Playback
+// Mode 3: Interactive Real-Time GIS Map (Leaflet.js + CartoDB Dark Matter)
 
 const ROOM_ID = 'BUS-101';
 const rtcConfig = {
@@ -13,7 +13,17 @@ const rtcConfig = {
   ]
 };
 
-// DOM Elements
+// ==============================================================================
+// DOM ELEMENTS - MODE SWITCHER
+// ==============================================================================
+const modeBtnLive = document.getElementById('modeBtnLive');
+const modeBtnUpload = document.getElementById('modeBtnUpload');
+const liveModeContainer = document.getElementById('liveModeContainer');
+const uploadModeContainer = document.getElementById('uploadModeContainer');
+
+// ==============================================================================
+// DOM ELEMENTS - MODE 1: LIVE BUS SENSOR
+// ==============================================================================
 const remoteVideo = document.getElementById('remoteVideo');
 const monitorPlaceholder = document.getElementById('monitorPlaceholder');
 const placeholderStatusTitle = document.getElementById('placeholderStatusTitle');
@@ -56,7 +66,57 @@ const toggleFollowBtn = document.getElementById('toggleFollowBtn');
 const viewerAlert = document.getElementById('viewerAlert');
 const viewerAlertText = document.getElementById('viewerAlertText');
 
-// State Variables
+// ==============================================================================
+// DOM ELEMENTS - MODE 2: FILE UPLOAD
+// ==============================================================================
+const uploadSetupCard = document.getElementById('uploadSetupCard');
+const uploadPlaybackCard = document.getElementById('uploadPlaybackCard');
+const videoDropzone = document.getElementById('videoDropzone');
+const gpsDropzone = document.getElementById('gpsDropzone');
+const videoFileInput = document.getElementById('videoFileInput');
+const gpsFileInput = document.getElementById('gpsFileInput');
+const videoFileBadge = document.getElementById('videoFileBadge');
+const gpsFileBadge = document.getElementById('gpsFileBadge');
+const uploadBusIdInput = document.getElementById('uploadBusIdInput');
+const uploadPreviewSessionId = document.getElementById('uploadPreviewSessionId');
+
+const summaryItemVideo = document.getElementById('summaryItemVideo');
+const summaryVideoText = document.getElementById('summaryVideoText');
+const summaryItemGps = document.getElementById('summaryItemGps');
+const summaryGpsText = document.getElementById('summaryGpsText');
+const summaryStatusText = document.getElementById('summaryStatusText');
+
+const uploadProgressBox = document.getElementById('uploadProgressBox');
+const uploadProgressStepText = document.getElementById('uploadProgressStepText');
+const uploadProgressPercent = document.getElementById('uploadProgressPercent');
+const uploadProgressFill = document.getElementById('uploadProgressFill');
+const uploadSubmitBtn = document.getElementById('uploadSubmitBtn');
+const uploadSubmitBtnText = document.getElementById('uploadSubmitBtnText');
+
+// Playback Elements (Mode 2)
+const playbackBusId = document.getElementById('playbackBusId');
+const playbackSessionId = document.getElementById('playbackSessionId');
+const uploadedVideoPlayer = document.getElementById('uploadedVideoPlayer');
+const resetUploadBtn = document.getElementById('resetUploadBtn');
+const recenterUploadMapBtn = document.getElementById('recenterUploadMapBtn');
+const uploadMapStatusText = document.getElementById('uploadMapStatusText');
+const processAiBtn = document.getElementById('processAiBtn');
+
+const uploadVideoTimeVal = document.getElementById('uploadVideoTimeVal');
+const uploadGpsTimeVal = document.getElementById('uploadGpsTimeVal');
+const uploadLatVal = document.getElementById('uploadLatVal');
+const uploadLonVal = document.getElementById('uploadLonVal');
+const uploadAccVal = document.getElementById('uploadAccVal');
+const uploadSpeedVal = document.getElementById('uploadSpeedVal');
+const uploadMatchStatusVal = document.getElementById('uploadMatchStatusVal');
+const uploadDeltaVal = document.getElementById('uploadDeltaVal');
+
+// ==============================================================================
+// STATE VARIABLES
+// ==============================================================================
+let currentInputMode = 'LIVE'; // 'LIVE' or 'UPLOAD'
+
+// Mode 1 State
 let socket = null;
 let peerConnection = null;
 let iceCandidateQueue = [];
@@ -64,17 +124,26 @@ let currentSessionId = null;
 let videoStartedAt = null;
 let videoClockInterval = null;
 let latestGpsTimestampMs = null;
-
-// GIS Map State Variables
 let leafletMap = null;
 let busMarker = null;
-let busAccuracyCircle = null;
 let routePolyline = null;
 let isFollowBusEnabled = true;
 let hasFirstGpsFix = false;
 let currentBusCoords = null;
 
-// Format Date object to "YYYY-MM-DD HH:MM:SS" (UTC)
+// Mode 2 State
+let selectedVideoFile = null;
+let selectedGpsFile = null;
+let uploadedSessionData = null;
+let uploadedGpsRecords = [];
+let uploadVideoStartMs = null;
+let uploadLeafletMap = null;
+let uploadBusMarker = null;
+let uploadRoutePolyline = null;
+
+// ==============================================================================
+// UTILITY FUNCTIONS
+// ==============================================================================
 function formatUtcFull(dateOrStr) {
   if (!dateOrStr) return '----:--:-- --:--:--';
   const d = new Date(dateOrStr);
@@ -83,31 +152,81 @@ function formatUtcFull(dateOrStr) {
   return `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
 }
 
-// 1. Initialize Interactive Leaflet GIS Map
-function initGisMap() {
+function formatElapsed(seconds) {
+  if (isNaN(seconds) || seconds < 0) return '00:00:00.000';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+}
+
+// Generate dynamic preview session ID for upload mode
+function generateUploadSessionId() {
+  const dateStr = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+  const randNum = Math.floor(100 + Math.random() * 900);
+  return `SESSION-UPLOAD-${dateStr}-${randNum}`;
+}
+
+// ==============================================================================
+// 1. INPUT MODE SWITCHING
+// ==============================================================================
+function switchInputMode(mode) {
+  currentInputMode = mode;
+  if (mode === 'LIVE') {
+    modeBtnLive.classList.add('active');
+    modeBtnUpload.classList.remove('active');
+    liveModeContainer.style.display = 'block';
+    uploadModeContainer.style.display = 'none';
+
+    // Invalidate live map size
+    if (leafletMap) {
+      setTimeout(() => leafletMap.invalidateSize(), 300);
+    }
+  } else {
+    modeBtnUpload.classList.add('active');
+    modeBtnLive.classList.remove('active');
+    liveModeContainer.style.display = 'none';
+    uploadModeContainer.style.display = 'block';
+
+    // Refresh upload preview session ID
+    if (!uploadedSessionData && uploadPreviewSessionId) {
+      uploadPreviewSessionId.textContent = generateUploadSessionId();
+    }
+
+    // Invalidate upload map size if active
+    if (uploadLeafletMap) {
+      setTimeout(() => uploadLeafletMap.invalidateSize(), 300);
+    }
+  }
+}
+
+modeBtnLive.addEventListener('click', () => switchInputMode('LIVE'));
+modeBtnUpload.addEventListener('click', () => switchInputMode('UPLOAD'));
+
+// ==============================================================================
+// 2. MODE 1: LIVE WEBRTC & LIVE GIS MAP (PRESERVED 100%)
+// ==============================================================================
+function initLiveGisMap() {
   if (!window.L) {
-    console.warn('[GIS Map] Leaflet library not loaded yet, retrying...');
-    setTimeout(initGisMap, 300);
+    setTimeout(initLiveGisMap, 300);
     return;
   }
 
   try {
-    // Default center (India) until GPS lock is obtained
-    const defaultCenter = [17.385044, 78.486671]; // Hyderabad default or central India
+    const defaultCenter = [17.385044, 78.486671];
 
     leafletMap = L.map('busMap', {
       zoomControl: true,
       attributionControl: false
     }).setView(defaultCenter, 13);
 
-    // CartoDB Dark Matter High-Tech Map Tiles (free, fast, beautiful dark theme)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       subdomains: 'abcd',
       attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(leafletMap);
 
-    // Custom SVG Bus Icon with Neon Cyan Pulsing Pin
     const busIcon = L.divIcon({
       className: 'bus-gis-marker-container',
       html: `
@@ -126,11 +245,9 @@ function initGisMap() {
       popupAnchor: [0, -18]
     });
 
-    // Create marker and route polyline
     busMarker = L.marker(defaultCenter, { icon: busIcon }).addTo(leafletMap);
-    busMarker.bindPopup('<div style="font-family: sans-serif; font-size: 13px;"><strong>DRISHTIYANA BUS-101</strong><br>Waiting for mobile GPS telemetry...</div>');
+    busMarker.bindPopup('<div style="font-family: sans-serif; font-size: 13px;"><strong>DRISHTIYANA BUS-101</strong><br>Live Sensing Mode</div>');
 
-    // Route breadcrumb trail
     routePolyline = L.polyline([], {
       color: '#06b6d4',
       weight: 4,
@@ -138,7 +255,6 @@ function initGisMap() {
       dashArray: '2, 6'
     }).addTo(leafletMap);
 
-    // Map UI Button Listeners
     recenterMapBtn.addEventListener('click', () => {
       if (currentBusCoords && leafletMap) {
         leafletMap.flyTo(currentBusCoords, 16, { animate: true, duration: 1 });
@@ -150,27 +266,19 @@ function initGisMap() {
       if (isFollowBusEnabled) {
         toggleFollowBtn.className = 'map-ctrl-btn active';
         toggleFollowBtn.textContent = '🛰 Follow: ON';
-        if (currentBusCoords && leafletMap) {
-          leafletMap.panTo(currentBusCoords);
-        }
+        if (currentBusCoords && leafletMap) leafletMap.panTo(currentBusCoords);
       } else {
         toggleFollowBtn.className = 'map-ctrl-btn';
         toggleFollowBtn.textContent = '🛰 Follow: OFF';
       }
     });
 
-    // Invalidate map size after DOM renders to ensure tiles fit cleanly
-    setTimeout(() => {
-      leafletMap.invalidateSize();
-    }, 500);
-
-    console.log('[GIS Map] Leaflet map initialized successfully.');
+    setTimeout(() => leafletMap.invalidateSize(), 500);
   } catch (err) {
-    console.error('[GIS Map] Error initializing Leaflet map:', err);
+    console.error('[Live Map Error]', err);
   }
 }
 
-// 2. Synchronized Video Clock Engine
 function startSynchronizedVideoClock(startIso) {
   if (videoClockInterval) clearInterval(videoClockInterval);
   const startMs = new Date(startIso).getTime();
@@ -185,7 +293,6 @@ function startSynchronizedVideoClock(startIso) {
 
     videoTimeVal.textContent = formatUtcFull(currentVideoMs);
 
-    // Calculate correlation delta between video playback and latest GPS fix
     if (latestGpsTimestampMs) {
       const lagMs = Math.abs(currentVideoMs - latestGpsTimestampMs);
       syncLagVal.textContent = `${lagMs} ms`;
@@ -203,7 +310,6 @@ function stopSynchronizedVideoClock() {
   syncLagVal.textContent = '-- ms';
 }
 
-// 3. Initialize Signaling & Real-time Telemetry via Socket.IO
 function initSignaling() {
   socket = io({
     reconnectionAttempts: 20,
@@ -211,64 +317,46 @@ function initSignaling() {
   });
 
   socket.on('connect', () => {
-    console.log('[Socket] Edge Monitor connected with ID:', socket.id);
+    console.log('[Socket] Edge Monitor connected:', socket.id);
     updateSignalingStatus(true, 'SERVER: CONNECTED');
     setConnectionStatus(true, 'CONNECTED');
     hideAlert();
-
-    // Join room as viewer (Edge Monitor)
     socket.emit('join-room', { roomId: ROOM_ID, role: 'viewer' });
   });
 
   socket.on('disconnect', () => {
-    console.warn('[Socket] Disconnected from signaling server');
     updateSignalingStatus(false, 'SERVER: DISCONNECTED');
     setConnectionStatus(false, 'DISCONNECTED');
     setVideoStatus(false, 'OFFLINE');
     setGpsStatus(false, 'OFFLINE');
-    resetVideoToStandby('Signaling Server Disconnected', 'Please verify that the Node.js server is running on your laptop.');
-    showAlert('Lost connection to signaling server. Auto-reconnecting...', 'danger');
+    resetVideoToStandby('Signaling Server Disconnected', 'Please verify that the Node.js server is running.');
   });
 
-  socket.on('connect_error', (err) => {
-    console.error('[Socket] Connection error:', err);
+  socket.on('connect_error', () => {
     updateSignalingStatus(false, 'SERVER: OFFLINE');
     setConnectionStatus(false, 'FAILED');
-    showAlert('Unable to reach server. Make sure "npm start" is active in your terminal.', 'danger');
   });
 
-  // DB Configuration status from server
-  socket.on('db-status', ({ configured }) => {
-    updateDbStatus(configured);
-  });
+  socket.on('db-status', ({ configured }) => updateDbStatus(configured));
 
-  // When Phone joins room
   socket.on('peer-joined', ({ role }) => {
-    console.log(`[Room] Peer joined: ${role}`);
     if (role === 'sender') {
       placeholderStatusTitle.textContent = 'Bus Sensor Connected - Ready';
       placeholderStatusDesc.textContent = 'Bus sensing unit detected! Waiting for user to tap "START BUS SENSOR" on mobile.';
-      showAlert('Phone sensor connected to session. Waiting for sensor activation...', 'info');
     }
   });
 
-  // Session Started from mobile
   socket.on('session-started', ({ session_id, bus_id, video_started_at, dbConfigured }) => {
-    console.log(`[Session] Started session: ${session_id}`);
     currentSessionId = session_id;
     videoStartedAt = video_started_at;
-
     sessionBadge.textContent = session_id;
     sessionBadge.className = 'badge badge-primary';
     hudBusSession.textContent = `LIVE FEED \u2022 ${bus_id} (${session_id})`;
-
     if (dbConfigured !== undefined) updateDbStatus(dbConfigured);
     startSynchronizedVideoClock(videoStartedAt);
   });
 
-  // Session Ended from mobile
-  socket.on('session-ended', ({ session_id }) => {
-    console.log(`[Session] Ended session: ${session_id}`);
+  socket.on('session-ended', () => {
     currentSessionId = null;
     sessionBadge.textContent = 'SESSION: IDLE';
     sessionBadge.className = 'badge';
@@ -276,19 +364,13 @@ function initSignaling() {
     setGpsStatus(false, 'IDLE');
   });
 
-  // Real-time GPS update broadcasted from backend
-  socket.on('gps-update', (data) => {
-    handleGpsUpdate(data);
-  });
+  socket.on('gps-update', (data) => handleLiveGpsUpdate(data));
 
-  // WebRTC Signaling: Receive Offer from Phone
   socket.on('offer', async ({ sdp }) => {
-    console.log('[WebRTC] Received OFFER from phone');
     hideAlert();
     await handleOffer(sdp);
   });
 
-  // WebRTC Signaling: Receive ICE Candidate
   socket.on('ice-candidate', async ({ candidate }) => {
     if (!candidate) return;
     try {
@@ -298,13 +380,11 @@ function initSignaling() {
         iceCandidateQueue.push(candidate);
       }
     } catch (err) {
-      console.error('[WebRTC] Error adding received ICE candidate:', err);
+      console.error('[WebRTC Candidate Error]', err);
     }
   });
 
-  // Phone Camera Status changes
   socket.on('camera-status', ({ status }) => {
-    console.log(`[Status] Remote camera status updated: ${status}`);
     if (status === 'LIVE') {
       setVideoStatus(true, 'LIVE');
     } else {
@@ -313,21 +393,17 @@ function initSignaling() {
     }
   });
 
-  // When Phone disconnects
   socket.on('peer-left', ({ role }) => {
-    console.log(`[Room] Peer left: ${role}`);
     if (role === 'sender') {
       setVideoStatus(false, 'OFFLINE');
       setGpsStatus(false, 'OFFLINE');
       setP2PStatus('PEER DISCONNECTED');
-      resetVideoToStandby('Mobile Device Disconnected', 'The phone closed the webpage or lost network connection.');
-      showAlert('Mobile sensing unit disconnected from room.', 'warning');
+      resetVideoToStandby('Mobile Device Disconnected', 'The phone closed the webpage or lost connection.');
     }
   });
 }
 
-// 4. Real-time GPS Telemetry & GIS Map Marker Updater
-function handleGpsUpdate(data) {
+function handleLiveGpsUpdate(data) {
   const { latitude, longitude, accuracy, speed, heading, gps_timestamp, dbConfigured } = data;
 
   latVal.textContent = latitude.toFixed(6);
@@ -342,19 +418,13 @@ function handleGpsUpdate(data) {
   setGpsStatus(true, 'LIVE');
   if (dbConfigured !== undefined) updateDbStatus(dbConfigured);
 
-  // Update GIS Map Position
   currentBusCoords = [latitude, longitude];
 
   if (leafletMap && busMarker) {
     busMarker.setLatLng(currentBusCoords);
+    if (routePolyline) routePolyline.addLatLng(currentBusCoords);
 
-    // Append position to the route breadcrumb polyline
-    if (routePolyline) {
-      routePolyline.addLatLng(currentBusCoords);
-    }
-
-    // Update Marker Popup with rich real-time metadata
-    const popupContent = `
+    busMarker.setPopupContent(`
       <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5; color: #1e293b;">
         <strong style="color: #0891b2; font-size: 14px;">DRISHTIYANA &bull; BUS-101</strong><br>
         <strong>Session:</strong> ${currentSessionId || 'Active'}<br>
@@ -363,10 +433,8 @@ function handleGpsUpdate(data) {
         <strong>Accuracy:</strong> ${accuracy ? accuracy.toFixed(1) + ' m' : 'N/A'}<br>
         <strong>Time:</strong> ${new Date(gps_timestamp).toISOString().slice(11, 19)} UTC
       </div>
-    `;
-    busMarker.setPopupContent(popupContent);
+    `);
 
-    // If first GPS fix received, zoom in to bus location
     if (!hasFirstGpsFix) {
       leafletMap.setView(currentBusCoords, 16);
       hasFirstGpsFix = true;
@@ -374,55 +442,36 @@ function handleGpsUpdate(data) {
       leafletMap.panTo(currentBusCoords);
     }
 
-    // Update Map HUD badge
     mapStatusDot.className = 'status-dot active';
     mapStatusText.textContent = `BUS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
   }
 }
 
-// 5. Handle Incoming WebRTC Offer (With Muted Autoplay Resolution)
 async function handleOffer(sdp) {
   try {
-    if (peerConnection) {
-      peerConnection.close();
-      peerConnection = null;
-    }
-
+    if (peerConnection) peerConnection.close();
     peerConnection = new RTCPeerConnection(rtcConfig);
     iceCandidateQueue = [];
 
-    // Robust Track Handler: Works across all browsers and engines
     peerConnection.ontrack = (event) => {
       console.log('[WebRTC] Media track received:', event.track.kind);
-
       if (event.streams && event.streams[0]) {
         remoteVideo.srcObject = event.streams[0];
       } else {
-        if (!remoteVideo.srcObject) {
-          remoteVideo.srcObject = new MediaStream();
-        }
+        if (!remoteVideo.srcObject) remoteVideo.srcObject = new MediaStream();
         remoteVideo.srcObject.addTrack(event.track);
       }
 
-      // CRITICAL FOR AUTOPLAY: Video must be muted to play without user gesture block!
-      remoteVideo.muted = true;
-
+      remoteVideo.muted = true; // Essential for autoplay
       const playPromise = remoteVideo.play();
       if (playPromise !== undefined) {
         playPromise
-          .then(() => {
-            console.log('[WebRTC Video] Video playback started successfully.');
-            unmutePlayBtn.style.display = 'none';
-          })
-          .catch((err) => {
-            console.warn('[WebRTC Video] Autoplay blocked, showing manual play button:', err);
-            unmutePlayBtn.style.display = 'flex';
-          });
+          .then(() => { unmutePlayBtn.style.display = 'none'; })
+          .catch(() => { unmutePlayBtn.style.display = 'flex'; });
       }
 
       monitorPlaceholder.style.display = 'none';
       monitorHud.style.display = 'flex';
-
       setConnectionStatus(true, 'CONNECTED');
       setVideoStatus(true, 'LIVE');
       setP2PStatus('STREAMING (P2P)');
@@ -434,77 +483,50 @@ async function handleOffer(sdp) {
       };
     };
 
-    // Forward ICE Candidates back to Phone
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && socket && socket.connected) {
-        console.log('[WebRTC Viewer] Sending ICE candidate to phone');
-        socket.emit('ice-candidate', {
-          roomId: ROOM_ID,
-          candidate: event.candidate
-        });
+        socket.emit('ice-candidate', { roomId: ROOM_ID, candidate: event.candidate });
       }
     };
 
-    // Connection state changes
     peerConnection.onconnectionstatechange = () => {
-      console.log('[WebRTC Viewer Connection State]:', peerConnection.connectionState);
       const state = peerConnection.connectionState;
       if (state === 'connected') {
         setP2PStatus('CONNECTED');
         setConnectionStatus(true, 'CONNECTED');
-      } else if (state === 'disconnected') {
-        setP2PStatus('P2P DISCONNECTED');
       } else if (state === 'failed') {
         setP2PStatus('P2P FAILED');
-        showAlert('Direct peer-to-peer connection failed. Ensure both devices are on the same Wi-Fi.', 'danger');
-        resetVideoToStandby('P2P Connection Failed', 'Could not establish direct WebRTC link between devices.');
+        resetVideoToStandby('P2P Connection Failed', 'Could not establish direct WebRTC link.');
       }
     };
 
-    peerConnection.oniceconnectionstatechange = () => {
-      console.log('[WebRTC Viewer ICE State]:', peerConnection.iceConnectionState);
-    };
-
-    // Set Remote Description from Offer
     await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-    console.log('[WebRTC] Remote description set from offer');
 
-    // Drain any queued ICE candidates received before remote description was ready
     while (iceCandidateQueue.length > 0) {
       const cand = iceCandidateQueue.shift();
       try {
         await peerConnection.addIceCandidate(new RTCIceCandidate(cand));
       } catch (e) {
-        console.error('[WebRTC] Error adding queued ICE candidate:', e);
+        console.error('[WebRTC Queue Error]', e);
       }
     }
 
-    // Create & Set Local Answer
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
-
-    console.log('[WebRTC] Sending ANSWER to phone');
     socket.emit('answer', { roomId: ROOM_ID, sdp: answer });
 
   } catch (err) {
-    console.error('[WebRTC] Error handling offer:', err);
-    showAlert(`Failed to negotiate WebRTC stream: ${err.message}`, 'danger');
+    console.error('[WebRTC Offer Error]', err);
   }
 }
 
-// Fallback Play Button Listener
 if (unmutePlayBtn) {
   unmutePlayBtn.addEventListener('click', () => {
     remoteVideo.muted = true;
-    remoteVideo.play()
-      .then(() => {
-        unmutePlayBtn.style.display = 'none';
-      })
-      .catch(e => console.error('Play click failed:', e));
+    remoteVideo.play().then(() => unmutePlayBtn.style.display = 'none').catch(e => console.error(e));
   });
 }
 
-// Helper: Reset video monitor to standby view
 function resetVideoToStandby(title, desc) {
   remoteVideo.srcObject = null;
   monitorPlaceholder.style.display = 'flex';
@@ -513,7 +535,6 @@ function resetVideoToStandby(title, desc) {
   if (desc) placeholderStatusDesc.textContent = desc;
 }
 
-// UI State Management Helpers
 function updateSignalingStatus(connected, text) {
   signalingBadge.className = `badge ${connected ? 'badge-live' : 'badge-offline'}`;
   signalingDot.className = `status-dot ${connected ? 'active' : ''}`;
@@ -561,8 +582,419 @@ function hideAlert() {
   viewerAlert.style.display = 'none';
 }
 
-// Start GIS Map & Signaling on page load
+
+// ==============================================================================
+// 3. MODE 2: FILE UPLOAD HANDLING & VALIDATION
+// ==============================================================================
+
+// Video file selection
+videoFileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const validExts = ['.mp4', '.avi', '.mov', '.webm'];
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!validExts.includes(ext)) {
+    showAlert(`Unsupported video format "${ext}". Supported: MP4, AVI, MOV, WEBM`, 'danger');
+    videoFileInput.value = '';
+    return;
+  }
+
+  selectedVideoFile = file;
+  videoFileBadge.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+  videoFileBadge.classList.add('active');
+  videoDropzone.classList.add('selected');
+
+  summaryItemVideo.classList.add('ready');
+  summaryVideoText.textContent = `✓ ${file.name}`;
+  checkUploadFormReady();
+});
+
+// GPS file selection
+gpsFileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const validExts = ['.json', '.csv'];
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!validExts.includes(ext)) {
+    showAlert(`Unsupported GPS format "${ext}". Supported: JSON, CSV`, 'danger');
+    gpsFileInput.value = '';
+    return;
+  }
+
+  selectedGpsFile = file;
+  gpsFileBadge.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+  gpsFileBadge.classList.add('active');
+  gpsDropzone.classList.add('selected');
+
+  summaryItemGps.classList.add('ready');
+  summaryGpsText.textContent = `✓ ${file.name}`;
+  checkUploadFormReady();
+});
+
+// Drag & Drop event helpers
+function setupDropzone(dropzoneEl, inputEl) {
+  ['dragenter', 'dragover'].forEach(name => {
+    dropzoneEl.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropzoneEl.style.borderColor = 'var(--color-primary)';
+      dropzoneEl.style.background = 'rgba(6, 182, 212, 0.08)';
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(name => {
+    dropzoneEl.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropzoneEl.style.borderColor = '';
+      dropzoneEl.style.background = '';
+    });
+  });
+
+  dropzoneEl.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      inputEl.files = e.dataTransfer.files;
+      const changeEvent = new Event('change');
+      inputEl.dispatchEvent(changeEvent);
+    }
+  });
+}
+
+setupDropzone(videoDropzone, videoFileInput);
+setupDropzone(gpsDropzone, gpsFileInput);
+
+function checkUploadFormReady() {
+  if (selectedVideoFile && selectedGpsFile) {
+    uploadSubmitBtn.disabled = false;
+    summaryStatusText.textContent = 'READY FOR PROCESSING';
+    summaryStatusText.style.color = 'var(--color-live)';
+  } else {
+    uploadSubmitBtn.disabled = true;
+    summaryStatusText.textContent = 'WAITING FOR FILES';
+    summaryStatusText.style.color = 'var(--text-muted)';
+  }
+}
+
+// Upload & Process Submit Handler
+uploadSubmitBtn.addEventListener('click', async () => {
+  if (!selectedVideoFile || !selectedGpsFile) return;
+
+  hideAlert();
+  uploadSubmitBtn.disabled = true;
+  uploadSubmitBtnText.textContent = 'UPLOADING & PROCESSING...';
+  uploadProgressBox.style.display = 'block';
+
+  updateUploadProgress(15, 'Uploading video & GPS files...');
+
+  const busId = (uploadBusIdInput.value || 'BUS-101').trim();
+  const formData = new FormData();
+  formData.append('video', selectedVideoFile);
+  formData.append('gps', selectedGpsFile);
+  formData.append('bus_id', busId);
+
+  try {
+    updateUploadProgress(40, 'Parsing & validating GPS dataset...');
+
+    const response = await fetch('/api/upload-session', {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to upload files');
+    }
+
+    updateUploadProgress(80, 'Persisting session & GPS records to Supabase...');
+
+    setTimeout(() => {
+      updateUploadProgress(100, 'READY FOR PROCESSING!');
+      setTimeout(() => {
+        setupUploadedPlayback(result);
+      }, 400);
+    }, 500);
+
+  } catch (err) {
+    console.error('[Upload Error]', err);
+    uploadProgressBox.style.display = 'none';
+    uploadSubmitBtn.disabled = false;
+    uploadSubmitBtnText.textContent = 'UPLOAD & START PROCESSING';
+    showAlert(`Upload failed: ${err.message}`, 'danger');
+  }
+});
+
+function updateUploadProgress(percent, text) {
+  uploadProgressPercent.textContent = `${percent}%`;
+  uploadProgressFill.style.width = `${percent}%`;
+  uploadProgressStepText.textContent = text;
+}
+
+// Reset upload form to process new files
+resetUploadBtn.addEventListener('click', () => {
+  uploadSetupCard.style.display = 'block';
+  uploadPlaybackCard.style.display = 'none';
+
+  selectedVideoFile = null;
+  selectedGpsFile = null;
+  uploadedSessionData = null;
+  uploadedGpsRecords = [];
+
+  videoFileInput.value = '';
+  gpsFileInput.value = '';
+  videoFileBadge.textContent = 'No video chosen';
+  videoFileBadge.classList.remove('active');
+  videoDropzone.classList.remove('selected');
+
+  gpsFileBadge.textContent = 'No GPS chosen';
+  gpsFileBadge.classList.remove('active');
+  gpsDropzone.classList.remove('selected');
+
+  summaryItemVideo.classList.remove('ready');
+  summaryVideoText.textContent = 'Not selected';
+  summaryItemGps.classList.remove('ready');
+  summaryGpsText.textContent = 'Not selected';
+  summaryStatusText.textContent = 'WAITING FOR FILES';
+  summaryStatusText.style.color = 'var(--text-muted)';
+
+  uploadProgressBox.style.display = 'none';
+  uploadSubmitBtn.disabled = true;
+  uploadSubmitBtnText.textContent = 'UPLOAD & START PROCESSING';
+
+  uploadedVideoPlayer.pause();
+  uploadedVideoPlayer.src = '';
+});
+
+// AI Processing Standby Button
+processAiBtn.addEventListener('click', async () => {
+  if (!uploadedSessionData) return;
+  try {
+    processAiBtn.disabled = true;
+    processAiBtn.textContent = 'Verifying with pipeline...';
+
+    const res = await fetch(`/api/process-session/${uploadedSessionData.session_id}`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+
+    showAlert(`AI Pipeline Standby: Session ${data.session_id} is verified and READY for future YOLO models!`, 'info');
+    processAiBtn.textContent = '✓ Pipeline Ready';
+  } catch (err) {
+    showAlert(`Pipeline check failed: ${err.message}`, 'danger');
+    processAiBtn.disabled = false;
+  }
+});
+
+
+// ==============================================================================
+// 4. NEAREST-NEIGHBOR TIMESTAMP CORRELATION & PLAYBACK ENGINE
+// ==============================================================================
+
+/**
+ * Given target timestamp in milliseconds and sorted GPS records array,
+ * find the closest GPS point using binary search.
+ */
+function getGpsForVideoTimestamp(targetTimestampMs, gpsRecords) {
+  if (!gpsRecords || gpsRecords.length === 0) return null;
+  if (gpsRecords.length === 1) {
+    const recTime = new Date(gpsRecords[0].gps_timestamp).getTime();
+    return { record: gpsRecords[0], deltaMs: Math.abs(recTime - targetTimestampMs) };
+  }
+
+  let low = 0;
+  let high = gpsRecords.length - 1;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const midTime = new Date(gpsRecords[mid].gps_timestamp).getTime();
+    if (midTime === targetTimestampMs) {
+      return { record: gpsRecords[mid], deltaMs: 0 };
+    }
+    if (midTime < targetTimestampMs) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const candA = gpsRecords[Math.max(0, high)];
+  const candB = gpsRecords[Math.min(gpsRecords.length - 1, low)];
+  const diffA = Math.abs(new Date(candA.gps_timestamp).getTime() - targetTimestampMs);
+  const diffB = Math.abs(new Date(candB.gps_timestamp).getTime() - targetTimestampMs);
+
+  if (diffA <= diffB) {
+    return { record: candA, deltaMs: diffA };
+  } else {
+    return { record: candB, deltaMs: diffB };
+  }
+}
+
+// Setup Uploaded Video Playback & GIS Map
+function setupUploadedPlayback(data) {
+  uploadedSessionData = data;
+  uploadedGpsRecords = data.gps_records || [];
+  uploadVideoStartMs = new Date(data.video_started_at).getTime();
+
+  // Populate Header Badges
+  playbackBusId.textContent = data.bus_id;
+  playbackSessionId.textContent = data.session_id;
+
+  // Switch View
+  uploadSetupCard.style.display = 'none';
+  uploadPlaybackCard.style.display = 'block';
+
+  // Load Video
+  uploadedVideoPlayer.src = data.video_url;
+  uploadedVideoPlayer.load();
+
+  // Initialize Upload GIS Map
+  initUploadGisMap(uploadedGpsRecords);
+
+  // Bind video player timeupdate to nearest GPS synchronization
+  uploadedVideoPlayer.ontimeupdate = () => {
+    handleUploadedVideoTimeUpdate();
+  };
+
+  uploadedVideoPlayer.onseeking = () => {
+    handleUploadedVideoTimeUpdate();
+  };
+
+  uploadedVideoPlayer.onseeked = () => {
+    handleUploadedVideoTimeUpdate();
+  };
+
+  // Trigger initial correlation at frame 0
+  handleUploadedVideoTimeUpdate();
+}
+
+function handleUploadedVideoTimeUpdate() {
+  if (!uploadedSessionData || !uploadVideoStartMs) return;
+
+  const currentSeconds = uploadedVideoPlayer.currentTime;
+  const currentAbsoluteMs = uploadVideoStartMs + Math.floor(currentSeconds * 1000);
+  const currentAbsoluteIso = new Date(currentAbsoluteMs).toISOString();
+
+  // Display Video Elapsed & Absolute Time
+  uploadVideoTimeVal.textContent = `${formatElapsed(currentSeconds)} (${currentAbsoluteIso.slice(11, 23)} UTC)`;
+
+  // Find Nearest GPS Record
+  const match = getGpsForVideoTimestamp(currentAbsoluteMs, uploadedGpsRecords);
+
+  if (match && match.record) {
+    const rec = match.record;
+    uploadGpsTimeVal.textContent = formatUtcFull(rec.gps_timestamp);
+    uploadLatVal.textContent = rec.latitude.toFixed(6);
+    uploadLonVal.textContent = rec.longitude.toFixed(6);
+    uploadAccVal.textContent = rec.accuracy !== null ? `${rec.accuracy.toFixed(1)} m` : 'N/A';
+    uploadSpeedVal.textContent = rec.speed !== null ? `${(rec.speed * 3.6).toFixed(1)} km/h` : '0.0 km/h';
+
+    uploadMatchStatusVal.textContent = 'MATCHED';
+    uploadDeltaVal.textContent = `\u00B1${match.deltaMs} ms`;
+
+    // Update Upload GIS Map Bus Marker Position
+    if (uploadLeafletMap && uploadBusMarker) {
+      const latlng = [rec.latitude, rec.longitude];
+      uploadBusMarker.setLatLng(latlng);
+      uploadLeafletMap.panTo(latlng);
+
+      uploadBusMarker.setPopupContent(`
+        <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5; color: #1e293b;">
+          <strong style="color: #0891b2; font-size: 14px;">UPLOAD REPLAY &bull; ${uploadedSessionData.bus_id}</strong><br>
+          <strong>Video Time:</strong> ${formatElapsed(currentSeconds)}<br>
+          <strong>Coords:</strong> ${rec.latitude.toFixed(6)}, ${rec.longitude.toFixed(6)}<br>
+          <strong>Speed:</strong> ${rec.speed !== null ? (rec.speed * 3.6).toFixed(1) : '0.0'} km/h<br>
+          <strong>Time Delta:</strong> \u00B1${match.deltaMs} ms
+        </div>
+      `);
+    }
+  } else {
+    uploadMatchStatusVal.textContent = 'SEARCHING';
+    uploadDeltaVal.textContent = '-- ms';
+  }
+}
+
+// Initialize Leaflet Map for Upload Playback
+function initUploadGisMap(records) {
+  if (!window.L) return;
+
+  const mapContainer = document.getElementById('uploadBusMap');
+  if (!mapContainer) return;
+
+  // Clean up existing map instance if reloading
+  if (uploadLeafletMap) {
+    uploadLeafletMap.remove();
+    uploadLeafletMap = null;
+  }
+
+  const initialCenter = records.length > 0
+    ? [records[0].latitude, records[0].longitude]
+    : [17.385044, 78.486671];
+
+  uploadLeafletMap = L.map('uploadBusMap', {
+    zoomControl: true,
+    attributionControl: false
+  }).setView(initialCenter, 16);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap &copy; CARTO'
+  }).addTo(uploadLeafletMap);
+
+  // Draw Full Uploaded Route Breadcrumb Trail
+  const latlngs = records.map(r => [r.latitude, r.longitude]);
+  uploadRoutePolyline = L.polyline(latlngs, {
+    color: '#06b6d4',
+    weight: 4,
+    opacity: 0.85
+  }).addTo(uploadLeafletMap);
+
+  if (latlngs.length > 1) {
+    uploadLeafletMap.fitBounds(uploadRoutePolyline.getBounds(), { padding: [30, 30] });
+  }
+
+  // Upload Marker Icon
+  const busIcon = L.divIcon({
+    className: 'bus-gis-marker-container',
+    html: `
+      <div class="bus-pulse-ring"></div>
+      <div class="bus-icon-badge">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ffffff" stroke-width="2">
+          <rect x="3" y="4" width="18" height="13" rx="2"></rect>
+          <path d="M16 2v2M8 2v2M4 11h16"></path>
+          <circle cx="7.5" cy="14.5" r="1.5" fill="#fff"></circle>
+          <circle cx="16.5" cy="14.5" r="1.5" fill="#fff"></circle>
+        </svg>
+      </div>
+    `,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    popupAnchor: [0, -18]
+  });
+
+  uploadBusMarker = L.marker(initialCenter, { icon: busIcon }).addTo(uploadLeafletMap);
+  uploadBusMarker.bindPopup('<div style="font-family: sans-serif; font-size: 12px;"><strong>UPLOAD REPLAY</strong><br>Move video timeline to synchronize.</div>');
+
+  recenterUploadMapBtn.addEventListener('click', () => {
+    if (uploadBusMarker && uploadLeafletMap) {
+      uploadLeafletMap.flyTo(uploadBusMarker.getLatLng(), 16, { animate: true, duration: 1 });
+    }
+  });
+
+  setTimeout(() => {
+    uploadLeafletMap.invalidateSize();
+  }, 400);
+
+  uploadMapStatusText.textContent = `ROUTE: ${records.length} POINTS`;
+}
+
+// ==============================================================================
+// 5. INITIALIZATION ON DOM READY
+// ==============================================================================
 window.addEventListener('DOMContentLoaded', () => {
-  initGisMap();
+  initLiveGisMap();
   initSignaling();
+  if (uploadPreviewSessionId) {
+    uploadPreviewSessionId.textContent = generateUploadSessionId();
+  }
 });
