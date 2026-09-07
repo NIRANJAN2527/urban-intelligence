@@ -46,6 +46,14 @@ app.get('/viewer', (req, res) => {
   res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(publicDir, 'admin.html'));
+});
+
+app.get('/command', (req, res) => {
+  res.sendFile(path.join(publicDir, 'admin.html'));
+});
+
 // Configure Multer for File Uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -330,8 +338,127 @@ app.get('/api/session-gps/:sessionId', async (req, res) => {
 });
 
 // ==============================================================================
-// EDGE AI EVENT EVIDENCE SUBMISSION API
+// ADMIN & COMMAND PORTAL TAXONOMY, REVERSE GEOCODING & STORAGE
 // ==============================================================================
+
+const EVENT_TAXONOMY = {
+  CATEGORIES: {
+    ROAD_INFRASTRUCTURE: {
+      id: 'road_infrastructure',
+      label: 'Road & Infrastructure',
+      icon: '🚧',
+      color: '#16A34A',
+      problems: [
+        { type: 'Pothole', department: 'ROAD MAINTENANCE' },
+        { type: 'Road Crack', department: 'ROAD MAINTENANCE' },
+        { type: 'Damaged Divider', department: 'ROAD MAINTENANCE' },
+        { type: 'Missing Zebra Crossing', department: 'ROAD MAINTENANCE' },
+        { type: 'Damaged Signboard', department: 'TRAFFIC' },
+        { type: 'Waterlogging', department: 'MUNICIPAL' }
+      ]
+    },
+    TRAFFIC: {
+      id: 'traffic',
+      label: 'Traffic',
+      icon: '🚦',
+      color: '#F59E0B',
+      problems: [
+        { type: 'Traffic Congestion', department: 'TRAFFIC' },
+        { type: 'Traffic Bottleneck', department: 'TRAFFIC' },
+        { type: 'Vehicle Density', department: 'TRAFFIC' }
+      ]
+    },
+    SAFETY: {
+      id: 'safety',
+      label: 'Safety',
+      icon: '🛡️',
+      color: '#EF4444',
+      problems: [
+        { type: 'Pedestrian Risk', department: 'POLICE' },
+        { type: 'Rash Driving', department: 'POLICE' },
+        { type: 'Hit-and-Run', department: 'POLICE' },
+        { type: 'Accident', department: 'POLICE / EMERGENCY' }
+      ]
+    }
+  }
+};
+
+function resolveEventTaxonomy(className) {
+  const norm = String(className || 'Pothole').toLowerCase();
+  for (const cat of Object.values(EVENT_TAXONOMY.CATEGORIES)) {
+    for (const prob of cat.problems) {
+      if (norm.includes(prob.type.toLowerCase()) || prob.type.toLowerCase().includes(norm)) {
+        return {
+          category: cat.label,
+          categoryId: cat.id,
+          categoryIcon: cat.icon,
+          department: prob.department,
+          problem: prob.type
+        };
+      }
+    }
+  }
+  return {
+    category: 'Road & Infrastructure',
+    categoryId: 'road_infrastructure',
+    categoryIcon: '🚧',
+    department: 'ROAD MAINTENANCE',
+    problem: className || 'Pothole'
+  };
+}
+
+// In-memory store for session & local fallback
+const inMemoryEvents = new Map();
+
+// Reverse Geocoding Cache (key: "lat,lon" rounded to 4 decimals)
+const reverseGeocodeCache = new Map();
+
+async function reverseGeocode(lat, lon) {
+  if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) {
+    return { formatted: 'Address unavailable', address: null };
+  }
+  const cacheKey = `${Number(lat).toFixed(4)},${Number(lon).toFixed(4)}`;
+  if (reverseGeocodeCache.has(cacheKey)) {
+    return reverseGeocodeCache.get(cacheKey);
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'DrishtiYana-Urban-Intelligence/1.0 (contact: admin@drishtiyana.local)'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const fallback = { formatted: 'Address unavailable', address: null };
+      reverseGeocodeCache.set(cacheKey, fallback);
+      return fallback;
+    }
+
+    const data = await resp.json();
+    const a = data.address || {};
+    const parts = [
+      a.road || a.street || a.suburb || a.neighbourhood,
+      a.city || a.town || a.village || a.county,
+      a.state,
+      a.country
+    ].filter(Boolean);
+
+    const formatted = parts.length > 0 ? parts.join(', ') : (data.display_name || 'Address unavailable');
+    const result = { formatted, address: data.address || null };
+    reverseGeocodeCache.set(cacheKey, result);
+    return result;
+  } catch (err) {
+    const fallback = { formatted: 'Address unavailable', address: null };
+    reverseGeocodeCache.set(cacheKey, fallback);
+    return fallback;
+  }
+}
 
 // In-memory set for candidate event deduplication and idempotency
 const processedCandidateEvents = new Set();
@@ -405,6 +532,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     }
 
     const evidenceImageUrl = req.file ? `/uploads/evidence/${req.file.filename}` : null;
+    const taxonomy = resolveEventTaxonomy(class_name);
 
     const eventRecord = {
       event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -413,6 +541,10 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       risk_score: parsedRiskScore,
       risk_level: parsedRiskLevel,
       priority: parsedPriority,
+      category: req.body.category || taxonomy.category,
+      department: req.body.department || taxonomy.department,
+      status: req.body.status || 'NEW',
+      work_order_id: req.body.work_order_id || null,
       session_id: session_id || 'UNKNOWN',
       bus_id: bus_id || 'BUS-101',
       camera_id: camera_id || 'CAM-01',
@@ -420,7 +552,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       video_timestamp: video_timestamp || null,
       processing_timestamp: processing_timestamp || new Date().toISOString(),
       confidence: confidence ? parseFloat(confidence) : 0.0,
-      class_name: class_name || 'Pothole',
+      class_name: class_name || taxonomy.problem,
       bbox_x1: bbox_x1 ? parseInt(bbox_x1, 10) : null,
       bbox_y1: bbox_y1 ? parseInt(bbox_y1, 10) : null,
       bbox_x2: bbox_x2 ? parseInt(bbox_x2, 10) : null,
@@ -434,7 +566,10 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       evidence_image_url: evidenceImageUrl
     };
 
-    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% | Risk: ${eventRecord.risk_level} (${eventRecord.risk_score}) | Priority: ${eventRecord.priority} (Observed: ${eventRecord.observation_count}x)`);
+    // Cache in in-memory event store
+    inMemoryEvents.set(eventRecord.event_id, eventRecord);
+
+    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% | Category: ${eventRecord.category} | Dept: ${eventRecord.department} | Risk: ${eventRecord.risk_level} (${eventRecord.risk_score}) | Priority: ${eventRecord.priority} (Observed: ${eventRecord.observation_count}x)`);
     console.log(`  Candidate: ${eventRecord.candidate_id || 'N/A'} | Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
     console.log(`  GPS: (${eventRecord.latitude}, ${eventRecord.longitude}) | Match: ${eventRecord.gps_match_status} (delta: ${eventRecord.timestamp_difference_ms} ms)`);
     if (evidenceImageUrl) {
@@ -453,7 +588,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       console.log(`[DB] Local memory relay (Supabase unconfigured): ${eventRecord.event_id}`);
     }
 
-    // Broadcast event to connected laptop monitors
+    // Broadcast event to connected laptop monitors and admin portals
     const targetRoom = eventRecord.bus_id || 'BUS-101';
     io.to(targetRoom).emit('edge-event-detected', eventRecord);
     io.emit('edge-event-detected', eventRecord);
@@ -462,6 +597,8 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       success: true,
       event_id: eventRecord.event_id,
       candidate_id: eventRecord.candidate_id,
+      category: eventRecord.category,
+      department: eventRecord.department,
       evidence_image_url: evidenceImageUrl,
       dbSaved,
       dbConfigured: supabase.isSupabaseConfigured()
@@ -470,6 +607,252 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     console.error('[API ERROR] /api/edge/events:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ==============================================================================
+// ADMIN & COMMAND PORTAL APIS
+// ==============================================================================
+
+// GET /api/admin/config: Returns taxonomy definitions and departments
+app.get('/api/admin/config', (req, res) => {
+  res.json({
+    success: true,
+    taxonomy: EVENT_TAXONOMY,
+    departments: [
+      'ROAD MAINTENANCE',
+      'TRAFFIC',
+      'POLICE',
+      'MUNICIPAL',
+      'POLICE / EMERGENCY'
+    ],
+    statuses: ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
+  });
+});
+
+// GET /api/admin/events: Retrieves real events with filters and search
+app.get('/api/admin/events', async (req, res) => {
+  try {
+    const { category, problem, risk_level, priority, department, status, bus_id, search, limit } = req.query;
+
+    let allEvents = [];
+    if (supabase.isSupabaseConfigured()) {
+      const dbResult = await supabase.getPotholeEvents({
+        category,
+        risk_level,
+        priority,
+        department,
+        status,
+        bus_id,
+        limit: limit ? parseInt(limit, 10) : 200
+      });
+      if (dbResult.success && Array.isArray(dbResult.data)) {
+        allEvents = dbResult.data;
+      }
+    }
+
+    // Merge in-memory events if not already fetched from DB
+    const dbEventIds = new Set(allEvents.map(e => e.event_id));
+    for (const [id, memEvt] of inMemoryEvents.entries()) {
+      if (!dbEventIds.has(id)) {
+        allEvents.push(memEvt);
+      }
+    }
+
+    // Sort descending by timestamp
+    allEvents.sort((a, b) => {
+      const tA = new Date(a.created_at || a.video_timestamp || a.processing_timestamp || 0).getTime();
+      const tB = new Date(b.created_at || b.video_timestamp || b.processing_timestamp || 0).getTime();
+      return tB - tA;
+    });
+
+    // Enrich each event with taxonomy metadata
+    let enriched = allEvents.map(evt => {
+      const tax = resolveEventTaxonomy(evt.class_name || evt.problem || 'Pothole');
+      return {
+        event_id: evt.event_id,
+        candidate_id: evt.candidate_id || null,
+        observation_count: evt.observation_count || 1,
+        category: evt.category || tax.category,
+        categoryId: tax.categoryId,
+        categoryIcon: tax.categoryIcon,
+        problem: evt.class_name || evt.problem || tax.problem,
+        class_name: evt.class_name || evt.problem || tax.problem,
+        department: evt.department || tax.department,
+        status: evt.status || 'NEW',
+        work_order_id: evt.work_order_id || null,
+        confidence: evt.confidence !== undefined ? parseFloat(evt.confidence) : 0.85,
+        risk_score: evt.risk_score !== undefined && evt.risk_score !== null ? parseInt(evt.risk_score, 10) : 50,
+        risk_level: evt.risk_level || 'MEDIUM',
+        priority: evt.priority || 'MEDIUM',
+        latitude: evt.latitude !== undefined && evt.latitude !== null ? parseFloat(evt.latitude) : null,
+        longitude: evt.longitude !== undefined && evt.longitude !== null ? parseFloat(evt.longitude) : null,
+        gps_timestamp: evt.gps_timestamp || null,
+        video_timestamp: evt.video_timestamp || null,
+        processing_timestamp: evt.processing_timestamp || evt.created_at || new Date().toISOString(),
+        created_at: evt.created_at || evt.processing_timestamp || new Date().toISOString(),
+        bus_id: evt.bus_id || 'BUS-101',
+        camera_id: evt.camera_id || 'CAM-01',
+        session_id: evt.session_id || 'UNKNOWN',
+        gps_match_status: evt.gps_match_status || 'UNCHECKED',
+        timestamp_difference_ms: evt.timestamp_difference_ms || null,
+        evidence_image_url: evt.evidence_image_url || null
+      };
+    });
+
+    // Filter layer
+    if (category && category !== 'all') {
+      enriched = enriched.filter(e => e.category.toLowerCase().includes(category.toLowerCase()));
+    }
+    if (problem && problem !== 'all') {
+      enriched = enriched.filter(e => e.problem.toLowerCase().includes(problem.toLowerCase()));
+    }
+    if (risk_level && risk_level !== 'all') {
+      enriched = enriched.filter(e => e.risk_level.toUpperCase() === risk_level.toUpperCase());
+    }
+    if (priority && priority !== 'all') {
+      enriched = enriched.filter(e => e.priority.toUpperCase() === priority.toUpperCase());
+    }
+    if (department && department !== 'all') {
+      enriched = enriched.filter(e => e.department.toLowerCase().includes(department.toLowerCase()));
+    }
+    if (status && status !== 'all') {
+      enriched = enriched.filter(e => e.status.toUpperCase() === status.toUpperCase());
+    }
+    if (bus_id && bus_id !== 'all') {
+      enriched = enriched.filter(e => e.bus_id.toLowerCase().includes(bus_id.toLowerCase()));
+    }
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      enriched = enriched.filter(e =>
+        e.event_id.toLowerCase().includes(q) ||
+        (e.candidate_id && e.candidate_id.toLowerCase().includes(q)) ||
+        e.bus_id.toLowerCase().includes(q) ||
+        e.problem.toLowerCase().includes(q) ||
+        e.department.toLowerCase().includes(q)
+      );
+    }
+
+    return res.json({
+      success: true,
+      count: enriched.length,
+      events: enriched
+    });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/events:', err.message);
+    return res.status(500).json({ success: false, error: err.message, events: [] });
+  }
+});
+
+// GET /api/admin/stats: Real summary counts for Overview cards
+app.get('/api/admin/stats', async (req, res) => {
+  try {
+    let allEvents = [];
+    if (supabase.isSupabaseConfigured()) {
+      const dbResult = await supabase.getPotholeEvents({ limit: 1000 });
+      if (dbResult.success && Array.isArray(dbResult.data)) {
+        allEvents = dbResult.data;
+      }
+    }
+    const dbEventIds = new Set(allEvents.map(e => e.event_id));
+    for (const [id, memEvt] of inMemoryEvents.entries()) {
+      if (!dbEventIds.has(id)) {
+        allEvents.push(memEvt);
+      }
+    }
+
+    const total = allEvents.length;
+    let newEvents = 0;
+    let highPriority = 0;
+    let criticalEvents = 0;
+    let roadProblems = 0;
+    let trafficProblems = 0;
+    let safetyIncidents = 0;
+    const byDepartment = {};
+    const byCategory = {};
+
+    for (const evt of allEvents) {
+      const tax = resolveEventTaxonomy(evt.class_name || evt.problem || 'Pothole');
+      const cat = evt.category || tax.category;
+      const dept = evt.department || tax.department;
+      const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
+      const prio = (evt.priority || 'MEDIUM').toUpperCase();
+      const stat = (evt.status || 'NEW').toUpperCase();
+
+      if (stat === 'NEW') newEvents++;
+      if (prio === 'HIGH') highPriority++;
+      if (rLvl === 'CRITICAL') criticalEvents++;
+
+      if (cat.toLowerCase().includes('road')) roadProblems++;
+      else if (cat.toLowerCase().includes('traffic')) trafficProblems++;
+      else if (cat.toLowerCase().includes('safety')) safetyIncidents++;
+
+      byDepartment[dept] = (byDepartment[dept] || 0) + 1;
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+    }
+
+    return res.json({
+      success: true,
+      stats: {
+        total_events: total,
+        new_events: newEvents,
+        high_priority: highPriority,
+        critical_events: criticalEvents,
+        road_problems: roadProblems,
+        traffic_problems: trafficProblems,
+        safety_incidents: safetyIncidents,
+        by_department: byDepartment,
+        by_category: byCategory
+      }
+    });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/stats:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/reverse-geocode: Cached reverse geocoding proxy
+app.get('/api/reverse-geocode', async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+
+  if (isNaN(lat) || isNaN(lon)) {
+    return res.json({ success: true, formatted: 'Address unavailable', address: null });
+  }
+
+  const result = await reverseGeocode(lat, lon);
+  return res.json({ success: true, ...result });
+});
+
+// PATCH /api/admin/events/:eventId/status: Update event status
+app.patch('/api/admin/events/:eventId/status', async (req, res) => {
+  const { eventId } = req.params;
+  const { status } = req.body;
+
+  const validStatuses = ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+  if (!status || !validStatuses.includes(status.toUpperCase())) {
+    return res.status(400).json({ success: false, error: `Invalid status. Allowed: ${validStatuses.join(', ')}` });
+  }
+
+  const normalizedStatus = status.toUpperCase();
+
+  // Update in memory if present
+  if (inMemoryEvents.has(eventId)) {
+    const mem = inMemoryEvents.get(eventId);
+    mem.status = normalizedStatus;
+    inMemoryEvents.set(eventId, mem);
+  }
+
+  // Update in Supabase if configured
+  if (supabase.isSupabaseConfigured()) {
+    await supabase.updateEventStatus(eventId, normalizedStatus);
+  }
+
+  io.emit('event-status-updated', {
+    event_id: eventId,
+    status: normalizedStatus
+  });
+
+  return res.json({ success: true, event_id: eventId, status: normalizedStatus });
 });
 
 // ==============================================================================

@@ -216,7 +216,10 @@ async function insertPotholeEvent(eventData) {
       gps_accuracy: eventData.gps_accuracy,
       timestamp_difference_ms: eventData.timestamp_difference_ms,
       gps_match_status: eventData.gps_match_status,
-      evidence_image_url: eventData.evidence_image_url
+      evidence_image_url: eventData.evidence_image_url,
+      status: eventData.status || 'NEW',
+      category: eventData.category || 'Road & Infrastructure',
+      department: eventData.department || 'ROAD MAINTENANCE'
     };
 
     const { data, error } = await supabase
@@ -235,6 +238,82 @@ async function insertPotholeEvent(eventData) {
   }
 }
 
+/**
+ * Query all pothole events with optional filters for Admin Portal
+ */
+async function getPotholeEvents(filters = {}) {
+  if (!isSupabaseConfigured()) {
+    return { success: false, reason: 'unconfigured', data: [] };
+  }
+
+  try {
+    let query = supabase
+      .from('pothole_events')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (filters.category && filters.category !== 'all') {
+      query = query.ilike('category', `%${filters.category}%`);
+    }
+    if (filters.risk_level && filters.risk_level !== 'all') {
+      query = query.eq('risk_level', filters.risk_level.toUpperCase());
+    }
+    if (filters.priority && filters.priority !== 'all') {
+      query = query.eq('priority', filters.priority.toUpperCase());
+    }
+    if (filters.department && filters.department !== 'all') {
+      query = query.ilike('department', `%${filters.department}%`);
+    }
+    if (filters.status && filters.status !== 'all') {
+      query = query.eq('status', filters.status.toUpperCase());
+    }
+    if (filters.bus_id && filters.bus_id !== 'all') {
+      query = query.eq('bus_id', filters.bus_id);
+    }
+
+    const limit = filters.limit ? parseInt(filters.limit, 10) : 200;
+    query = query.limit(limit);
+
+    const { data, error } = await query;
+    if (error) {
+      console.warn('[Supabase] Failed to query pothole events:', error.message);
+      return { success: false, error: error.message, data: [] };
+    }
+
+    return { success: true, data: data || [] };
+  } catch (err) {
+    console.error('[Supabase Exception] getPotholeEvents:', err.message);
+    return { success: false, error: err.message, data: [] };
+  }
+}
+
+/**
+ * Update event status (e.g., NEW -> ASSIGNED -> IN_PROGRESS -> RESOLVED)
+ */
+async function updateEventStatus(eventId, newStatus) {
+  if (!isSupabaseConfigured()) {
+    return { success: false, reason: 'unconfigured' };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('pothole_events')
+      .update({ status: newStatus })
+      .eq('event_id', eventId)
+      .select();
+
+    if (error) {
+      console.warn('[Supabase] Failed to update event status:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (err) {
+    console.error('[Supabase Exception] updateEventStatus:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   isSupabaseConfigured,
   createSession,
@@ -242,5 +321,7 @@ module.exports = {
   insertGpsLocation,
   insertGpsLocationsBulk,
   getSessionGpsLocations,
-  insertPotholeEvent
+  insertPotholeEvent,
+  getPotholeEvents,
+  updateEventStatus
 };

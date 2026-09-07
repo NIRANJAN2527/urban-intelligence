@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS pothole_events (
     timestamp_difference_ms INTEGER,
     gps_match_status TEXT,
     evidence_image_url TEXT,
+    status TEXT DEFAULT 'NEW',
+    category TEXT DEFAULT 'Road & Infrastructure',
+    department TEXT DEFAULT 'ROAD MAINTENANCE',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -85,6 +88,9 @@ CREATE INDEX IF NOT EXISTS idx_pothole_events_bus ON pothole_events(bus_id);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_created ON pothole_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
 
 -- ==============================================================================
 -- Migration statements if tables already exist:
@@ -97,6 +103,12 @@ ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS observation_count INTEGER DE
 ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS risk_score INTEGER;
 ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS risk_level TEXT;
 ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS priority TEXT;
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'NEW';
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Road & Infrastructure';
+ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS department TEXT DEFAULT 'ROAD MAINTENANCE';
 CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
 
