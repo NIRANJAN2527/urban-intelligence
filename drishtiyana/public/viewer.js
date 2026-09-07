@@ -221,7 +221,7 @@ function initLiveGisMap() {
       attributionControl: false
     }).setView(defaultCenter, 13);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       subdomains: 'abcd',
       attribution: '&copy; OpenStreetMap &copy; CARTO'
@@ -249,7 +249,7 @@ function initLiveGisMap() {
     busMarker.bindPopup('<div style="font-family: sans-serif; font-size: 13px;"><strong>DRISHTIYANA BUS-101</strong><br>Live Sensing Mode</div>');
 
     routePolyline = L.polyline([], {
-      color: '#06b6d4',
+      color: '#16A34A',
       weight: 4,
       opacity: 0.9,
       dashArray: '2, 6'
@@ -425,8 +425,8 @@ function handleLiveGpsUpdate(data) {
     if (routePolyline) routePolyline.addLatLng(currentBusCoords);
 
     busMarker.setPopupContent(`
-      <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5; color: #1e293b;">
-        <strong style="color: #0891b2; font-size: 14px;">DRISHTIYANA &bull; BUS-101</strong><br>
+      <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5; color: #16301F;">
+        <strong style="color: #15803D; font-size: 14px;">DRISHTIYANA &bull; BUS-101</strong><br>
         <strong>Session:</strong> ${currentSessionId || 'Active'}<br>
         <strong>Coords:</strong> ${latitude.toFixed(6)}, ${longitude.toFixed(6)}<br>
         <strong>Speed:</strong> ${speed !== null ? (speed * 3.6).toFixed(1) : '0.0'} km/h<br>
@@ -898,8 +898,8 @@ function handleUploadedVideoTimeUpdate() {
       uploadLeafletMap.panTo(latlng);
 
       uploadBusMarker.setPopupContent(`
-        <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5; color: #1e293b;">
-          <strong style="color: #0891b2; font-size: 14px;">UPLOAD REPLAY &bull; ${uploadedSessionData.bus_id}</strong><br>
+        <div style="font-family: sans-serif; font-size: 12px; line-height: 1.5; color: #16301F;">
+          <strong style="color: #15803D; font-size: 14px;">UPLOAD REPLAY &bull; ${uploadedSessionData.bus_id}</strong><br>
           <strong>Video Time:</strong> ${formatElapsed(currentSeconds)}<br>
           <strong>Coords:</strong> ${rec.latitude.toFixed(6)}, ${rec.longitude.toFixed(6)}<br>
           <strong>Speed:</strong> ${rec.speed !== null ? (rec.speed * 3.6).toFixed(1) : '0.0'} km/h<br>
@@ -935,7 +935,7 @@ function initUploadGisMap(records) {
     attributionControl: false
   }).setView(initialCenter, 16);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
     subdomains: 'abcd',
     attribution: '&copy; OpenStreetMap &copy; CARTO'
@@ -944,7 +944,7 @@ function initUploadGisMap(records) {
   // Draw Full Uploaded Route Breadcrumb Trail
   const latlngs = records.map(r => [r.latitude, r.longitude]);
   uploadRoutePolyline = L.polyline(latlngs, {
-    color: '#06b6d4',
+    color: '#16A34A',
     weight: 4,
     opacity: 0.85
   }).addTo(uploadLeafletMap);
