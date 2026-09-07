@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>DRISHTIYANA - Bus Sensing Unit</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Socket.IO client served by server -->
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+          <circle cx="12" cy="13" r="4"></circle>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">DRISHTIYANA</h1>
+        <p class="brand-subtitle">BUS SENSOR UNIT</p>
+      </div>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-primary" id="roomBadge">BUS-101</span>
+    </div>
+  </header>
+
+  <!-- Mobile Container -->
+  <main class="mobile-wrapper">
+    <!-- Camera Preview Box -->
+    <div class="mobile-preview-box">
+      <video id="cameraPreview" autoplay playsinline muted></video>
+      
+      <div class="video-placeholder" id="cameraPlaceholder">
+        <div class="placeholder-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+        </div>
+        <h3 class="placeholder-title">Camera Standby</h3>
+        <p class="placeholder-desc">Tap "START CAMERA" below to grant camera access and begin live streaming to the laptop edge monitor.</p>
+      </div>
+
+      <!-- Live Badge on Preview -->
+      <div class="video-hud" id="previewHud" style="display: none;">
+        <div class="hud-pill">
+          <span class="status-dot active"></span>
+          <span>PREVIEW LIVE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status & Info Card -->
+    <div class="glass-card" style="padding: 1rem 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <span class="status-label">SERVER CONNECTION</span>
+        <span class="badge" id="serverStatusBadge">
+          <span class="status-dot" id="serverStatusDot"></span>
+          <span id="serverStatusText">CONNECTING...</span>
+        </span>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="status-label">CAMERA STREAM</span>
+        <span class="badge badge-offline" id="cameraStatusBadge">
+          <span class="status-dot" id="cameraStatusDot"></span>
+          <span id="cameraStatusText">CAMERA: OFFLINE</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Notification / Error Banner (Hidden by default) -->
+    <div id="alertBox" class="alert alert-danger" style="display: none;">
+      <span id="alertMessage"></span>
+    </div>
+
+    <!-- Main Trigger Button -->
+    <button id="startBtn" class="btn btn-primary">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+      </svg>
+      <span id="startBtnText">START CAMERA</span>
+    </button>
+  </main>
+
+  <footer class="app-footer">
+    DRISHTIYANA &bull; Mobile Sensing Node &bull; SIH 2026
+  </footer>
+
+  <script src="mobile.js"></script>
+</body>
+</html>

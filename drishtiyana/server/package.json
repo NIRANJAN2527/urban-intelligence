@@ -1,0 +1,26 @@
+{
+  "name": "drishtiyana-server",
+  "version": "1.0.0",
+  "description": "DRISHTIYANA - Mobile Camera to Edge Monitor WebRTC Live Streaming Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "webrtc",
+    "streaming",
+    "drishtiyana",
+    "socketio",
+    "edge-monitor"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "selfsigned": "^2.4.1",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}
