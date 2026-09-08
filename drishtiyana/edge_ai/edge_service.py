@@ -31,6 +31,7 @@ from detector import PotholeDetector, POTHOLE_CONFIDENCE_THRESHOLD, DEFAULT_MODE
 from redis_tracker import RedisCandidateManager
 from gps_matcher import get_gps_for_video_timestamp, parse_timestamp_to_ms
 from risk_assessment import calculate_pothole_risk
+from video_sync_processor import process_uploaded_video
 
 # Node.js backend endpoint for submitting finalized events
 NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "http://127.0.0.1:3000")
@@ -104,6 +105,11 @@ def async_server_dispatch_worker():
             except Exception as fe:
                 print(f"[Dispatcher Notice] Could not read evidence image: {fe}")
 
+        # Strict error handling: If evidence saving/reading failed, do NOT create an event pretending evidence exists
+        if not evidence_bytes:
+            print(f"[Dispatcher Error] Evidence image missing or unreadable for candidate {cand_id}; skipping event creation without valid evidence.")
+            continue
+
         gps = candidate.get("gps") or {}
         best_bbox = candidate.get("best_bbox") or {"x1": 0, "y1": 0, "x2": 0, "y2": 0}
 
@@ -132,15 +138,14 @@ def async_server_dispatch_worker():
             "gps_timestamp": str(gps.get("gps_timestamp")) if gps.get("gps_timestamp") else "",
             "gps_accuracy": str(gps.get("accuracy")) if gps.get("accuracy") is not None else "",
             "timestamp_difference_ms": str(gps.get("timestamp_difference_ms")) if gps.get("timestamp_difference_ms") is not None else "",
-            "gps_match_status": str(gps.get("gps_match_status", "UNCHECKED"))
+            "gps_match_status": str(gps.get("gps_match_status", "UNCHECKED")),
+            "best_frame_path": evidence_path if evidence_path else ""
         }
 
-        files = None
-        if evidence_bytes:
-            files = {"evidence_image": ("evidence.jpg", evidence_bytes, "image/jpeg")}
+        files = {"evidence_image": ("evidence.jpg", evidence_bytes, "image/jpeg")}
 
         try:
-            resp = requests.post(f"{NODE_BACKEND_URL}/api/edge/events", data=data, files=files, timeout=2.0)
+            resp = requests.post(f"{NODE_BACKEND_URL}/api/edge/events", data=data, files=files, timeout=10.0)
             if resp.status_code in [200, 201]:
                 server_connection_status = "CONNECTED"
                 session_metrics["server_status"] = "CONNECTED"
@@ -420,6 +425,76 @@ async def process_frame(
         "server_status": server_connection_status,
         "redis_status": redis_tracker.get_redis_status()["mode"] if redis_tracker else "disconnected"
     }
+
+
+@app.post("/api/edge/process-video")
+async def process_video_endpoint(
+    video_path: Optional[str] = Form(None),
+    video_file: Optional[UploadFile] = File(None),
+    gps_source: Optional[str] = Form(None),
+    gps_file: Optional[UploadFile] = File(None),
+    session_id: str = Form("SESSION-UPLOAD-001"),
+    bus_id: str = Form("BUS-101"),
+    camera_id: str = Form("CAM-01"),
+    video_source: Optional[str] = Form(None),
+    frame_step: int = Form(1)
+):
+    """
+    Uploaded Video Timestamp Synchronization & AI Pipeline Endpoint:
+    Processes recorded road video (.mp4, .avi, .mov, .webm) and GPS records (.csv, .json).
+    Synchronizes frames with deterministic OpenCV timing:
+      Frame Timestamp = GPS Start Time + (Frame Number / FPS)
+    Correlates nearest GPS, runs enhancement, YOLO inference, and Redis candidate aggregation.
+    Dispatches finalized pothole events to Node.js backend.
+    """
+    if detector is None or detector.model is None:
+        raise HTTPException(status_code=503, detail="YOLO detector is not initialized.")
+
+    target_video_path = video_path
+    temp_video_path = None
+
+    if video_file is not None:
+        temp_video_path = os.path.join(os.path.dirname(__file__), f"temp_upload_{int(time.time())}_{video_file.filename}")
+        with open(temp_video_path, "wb") as f:
+            content = await video_file.read()
+            f.write(content)
+        target_video_path = temp_video_path
+
+    if not target_video_path or not os.path.exists(target_video_path):
+        raise HTTPException(status_code=400, detail=f"Valid video file or video_path is required. Received: {target_video_path}")
+
+    target_gps_input = gps_source
+    if gps_file is not None:
+        gps_bytes = await gps_file.read()
+        target_gps_input = gps_bytes.decode("utf-8", errors="ignore")
+
+    if not target_gps_input:
+        raise HTTPException(status_code=400, detail="GPS dataset (CSV or JSON string/file) is required.")
+
+    try:
+        result = process_uploaded_video(
+            video_path=target_video_path,
+            gps_source=target_gps_input,
+            session_id=session_id,
+            bus_id=bus_id,
+            camera_id=camera_id,
+            video_source=video_source or os.path.basename(target_video_path),
+            detector=detector,
+            redis_tracker=redis_tracker,
+            node_backend_url=NODE_BACKEND_URL,
+            dispatch_to_server=True,
+            frame_step=max(1, frame_step)
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        print(f"[Process Video Error] {e}")
+        raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
+    finally:
+        if temp_video_path and os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

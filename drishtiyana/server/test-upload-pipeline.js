@@ -79,9 +79,13 @@ async function runUploadPipelineTest() {
   const sampleJsonPath = path.join(__dirname, '../sample_data/pothole_test_01.json');
   const sampleCsvPath = path.join(__dirname, '../sample_data/pothole_test_01.csv');
 
-  // Create a lightweight mock MP4 file
-  const mockVideoPath = path.join(__dirname, 'mock_road_test.mp4');
-  fs.writeFileSync(mockVideoPath, Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]));
+  // Use real sample video if present, or create a lightweight mock MP4 file
+  const realVideoPath = path.join(__dirname, 'uploads', 'ruralRoad_potHoles-1788881907973.mp4');
+  let mockVideoPath = realVideoPath;
+  if (!fs.existsSync(realVideoPath)) {
+    mockVideoPath = path.join(__dirname, 'mock_road_test.mp4');
+    fs.writeFileSync(mockVideoPath, Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]));
+  }
 
   // 3. Test POST /api/upload-session with JSON GPS
   console.log('\n[Test 2] Testing POST /api/upload-session with JSON GPS...');
@@ -143,14 +147,16 @@ async function runUploadPipelineTest() {
     method: 'POST'
   });
   const processBody = await resProcess.json();
-  console.log('   Process API Response:', resProcess.status, processBody);
-  if (resProcess.status !== 200 || processBody.status !== 'PROCESSING_READY') {
-    throw new Error('Process session API failed');
+  console.log('   Process API Response:', resProcess.status, processBody.status || processBody);
+  if (resProcess.status !== 200 || (processBody.status !== 'PROCESSING_COMPLETE' && processBody.status !== 'PROCESSING_READY')) {
+    throw new Error(`Process session API failed: ${JSON.stringify(processBody)}`);
   }
-  console.log('✅ AI Processing Standby API test passed!');
+  console.log('✅ AI Processing API test passed!');
 
-  // Cleanup temporary mock video
-  if (fs.existsSync(mockVideoPath)) fs.unlinkSync(mockVideoPath);
+  // Cleanup temporary mock video if created
+  if (mockVideoPath !== realVideoPath && fs.existsSync(mockVideoPath)) {
+    fs.unlinkSync(mockVideoPath);
+  }
 
   console.log('\n======================================================');
   console.log('       MODE 2 UPLOAD & CORRELATION VERIFICATION        ');

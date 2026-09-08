@@ -229,14 +229,17 @@ def run_test_9():
         "class_name": "Pothole"
     }
 
+    dummy_jpeg = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x03\x02\x02\x02\x02\x02\x03\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\t\xff\xda\x00\x08\x01\x01\x00\x00?\x007\xff\xd9'
+    files = {"evidence_image": ("evidence.jpg", dummy_jpeg, "image/jpeg")}
+
     # First dispatch -> Accepted
-    resp1 = requests.post(f"{NODE_URL}/api/edge/events", data=payload, timeout=3.0)
+    resp1 = requests.post(f"{NODE_URL}/api/edge/events", data=payload, files=files, timeout=3.0)
     assert resp1.status_code == 200, f"Expected 200, got {resp1.status_code}"
     data1 = resp1.json()
     assert data1["success"] is True
 
     # Second dispatch (exact duplicate) -> Idempotency rejected
-    resp2 = requests.post(f"{NODE_URL}/api/edge/events", data=payload, timeout=3.0)
+    resp2 = requests.post(f"{NODE_URL}/api/edge/events", data=payload, files=files, timeout=3.0)
     assert resp2.status_code == 200, f"Expected 200, got {resp2.status_code}"
     data2 = resp2.json()
     assert data2.get("duplicate") is True, f"Expected duplicate=True, got {data2}"

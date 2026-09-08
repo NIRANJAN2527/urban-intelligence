@@ -324,6 +324,9 @@ class RedisCandidateManager:
 
                 # Overwrite best evidence frame image
                 frame_path = best_match_candidate.get("best_frame_path")
+                if not frame_path:
+                    frame_path = os.path.join(TMP_CANDIDATES_DIR, f"{session_id}_{cand_id}.jpg")
+                    best_match_candidate["best_frame_path"] = frame_path
                 if frame_path and annotated_frame is not None:
                     try:
                         cv2.imwrite(frame_path, annotated_frame)

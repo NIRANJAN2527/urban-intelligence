@@ -160,7 +160,8 @@ async function runTests() {
     // TEST 8: Edge AI Ingestion (Uninterrupted & Without Auth Requirement)
     console.log('\n[TEST 8] Testing Edge AI event ingestion (/api/edge/events)...');
     const testEvtId = `EVT-REPORT-TEST-${Date.now()}`;
-    const edgePostData = `event_id=${testEvtId}&class_name=Pothole&confidence=0.92&risk_score=78&risk_level=HIGH&priority=HIGH&latitude=17.4399&longitude=78.4982&session_id=SESSION-SECURE-TEST`;
+    const dummyJpegB64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+    const edgePostData = `event_id=${testEvtId}&class_name=Pothole&confidence=0.92&risk_score=78&risk_level=HIGH&priority=HIGH&latitude=17.4399&longitude=78.4982&session_id=SESSION-SECURE-TEST&annotated_frame_base64=${encodeURIComponent(dummyJpegB64)}`;
     const edgeRes = await request(`${baseUrl}/api/edge/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -168,7 +169,7 @@ async function runTests() {
     });
 
     if (edgeRes.status === 200 && edgeRes.json && edgeRes.json.success) {
-      console.log(`   [PASS] Edge AI event successfully ingested: ${testEvtId} (Dept: ${edgeRes.json.department})`);
+      console.log(`   [PASS] Edge AI event successfully ingested: ${testEvtId} (Evidence: ${edgeRes.json.evidence_image_url || 'N/A'})`);
       passed++;
     } else {
       throw new Error(`Edge AI event ingestion failed: ${edgeRes.body}`);

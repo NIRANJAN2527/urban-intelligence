@@ -51,6 +51,7 @@ const detailPlaceholder = document.getElementById('detailPlaceholder');
 const detailContent = document.getElementById('detailContent');
 const detailStatusBadge = document.getElementById('detailStatusBadge');
 const detailEvidenceImg = document.getElementById('detailEvidenceImg');
+const detailEvidenceUnavailable = document.getElementById('detailEvidenceUnavailable');
 const detailEvidenceTag = document.getElementById('detailEvidenceTag');
 const detailCategoryBadge = document.getElementById('detailCategoryBadge');
 const detailRiskBadge = document.getElementById('detailRiskBadge');
@@ -338,8 +339,8 @@ function renderMapMarkers(events) {
     // Popup content with thumbnail
     const confPct = Math.round((evt.confidence || 0) * 100);
     const imgHtml = evt.evidence_image_url
-      ? `<img src="${evt.evidence_image_url}" style="width: 100%; height: 90px; object-fit: cover; border-radius: 6px; margin-bottom: 6px;">`
-      : '';
+      ? `<img src="${evt.evidence_image_url}" onerror="this.outerHTML='<div style=\\'background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;\\'>Evidence unavailable</div>'" style="width: 100%; height: 90px; object-fit: cover; border-radius: 6px; margin-bottom: 6px;">`
+      : `<div style="background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;">Evidence unavailable</div>`;
 
     marker.bindPopup(`
       <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 190px; line-height: 1.4;">
@@ -482,10 +483,19 @@ async function selectEventById(eventId, panMap = true) {
   if (evt.evidence_image_url) {
     detailEvidenceImg.src = evt.evidence_image_url;
     detailEvidenceImg.style.display = 'block';
+    if (detailEvidenceUnavailable) detailEvidenceUnavailable.style.display = 'none';
     detailEvidenceTag.textContent = `OBSERVED ${evt.observation_count || 1}X (BEST FRAME)`;
+    detailEvidenceTag.style.display = 'block';
+
+    detailEvidenceImg.onerror = () => {
+      detailEvidenceImg.style.display = 'none';
+      if (detailEvidenceUnavailable) detailEvidenceUnavailable.style.display = 'flex';
+      detailEvidenceTag.textContent = 'EVIDENCE UNAVAILABLE';
+    };
   } else {
     detailEvidenceImg.style.display = 'none';
-    detailEvidenceTag.textContent = 'NO EVIDENCE FRAME';
+    if (detailEvidenceUnavailable) detailEvidenceUnavailable.style.display = 'flex';
+    detailEvidenceTag.textContent = 'EVIDENCE UNAVAILABLE';
   }
 
   // Category & Risk Badges

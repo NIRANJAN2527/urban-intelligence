@@ -275,6 +275,9 @@ app.get('/api/status', (req, res) => {
 // MODE 2: FILE UPLOAD ENDPOINTS
 // ==============================================================================
 
+// In-memory registry of uploaded video sessions
+const uploadedSessions = new Map();
+
 // POST /api/upload-session: Handles Video + GPS File Upload
 app.post('/api/upload-session', upload.fields([
   { name: 'video', maxCount: 1 },
@@ -418,7 +421,20 @@ app.post('/api/upload-session', upload.fields([
     console.log(`  GPS Records: ${formattedGpsRecords.length} points`);
     console.log(`  Video Start: ${videoStartedAt}\n`);
 
-    // 10. Respond to Frontend
+    // 10. Store in uploaded sessions registry
+    uploadedSessions.set(sessionId, {
+      session_id: sessionId,
+      bus_id: busId,
+      source_type: 'UPLOAD',
+      video_filename: videoFile.filename,
+      video_original_name: videoFile.originalname,
+      video_path: videoFile.path,
+      video_url: `/uploads/${videoFile.filename}`,
+      video_started_at: videoStartedAt,
+      gps_records: formattedGpsRecords
+    });
+
+    // 11. Respond to Frontend
     return res.status(200).json({
       success: true,
       session_id: sessionId,
@@ -438,18 +454,74 @@ app.post('/api/upload-session', upload.fields([
   }
 });
 
-// POST /api/process-session/:sessionId: Standby hook for future AI processing pipeline
-app.post('/api/process-session/:sessionId', (req, res) => {
+// POST /api/process-session/:sessionId: Triggers Timestamp-Synchronized Edge AI processing for uploaded video
+app.post('/api/process-session/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
-  console.log(`[AI Processing Standby] Session ${sessionId} verified and ready for future YOLO model execution.`);
+  const session = uploadedSessions.get(sessionId);
 
-  res.json({
-    session_id: sessionId,
-    status: 'PROCESSING_READY',
-    video: 'READY',
-    gps: 'READY',
-    message: 'Session prepared for AI detection.'
-  });
+  let videoPath = session ? session.video_path : null;
+  let gpsRecords = session ? session.gps_records : (req.body.gps_records || []);
+  let busId = session ? session.bus_id : (req.body.bus_id || 'BUS-101');
+  let videoSource = session ? session.video_original_name : (req.body.video_source || 'uploaded_recording');
+
+  if (!videoPath && req.body.video_filename) {
+    videoPath = path.join(uploadsDir, req.body.video_filename);
+  }
+
+  if (!videoPath || !fs.existsSync(videoPath)) {
+    return res.status(404).json({ error: `Video file not found on disk for session ${sessionId}` });
+  }
+
+  if (!gpsRecords || gpsRecords.length === 0) {
+    try {
+      const dbGps = await supabase.getSessionGpsLocations(sessionId);
+      if (dbGps && dbGps.locations && dbGps.locations.length > 0) {
+        gpsRecords = dbGps.locations;
+      }
+    } catch (_) {}
+  }
+
+  if (!gpsRecords || gpsRecords.length === 0) {
+    return res.status(400).json({ error: `No GPS telemetry records available for session ${sessionId}` });
+  }
+
+  console.log(`\n[Upload Mode AI Pipeline] Starting timestamp-synchronized Edge AI execution for session: ${sessionId}`);
+  console.log(`  Video File: ${videoPath}`);
+  console.log(`  GPS Records: ${gpsRecords.length}`);
+
+  try {
+    const edgeFormData = new URLSearchParams();
+    edgeFormData.append('video_path', videoPath);
+    edgeFormData.append('gps_source', JSON.stringify(gpsRecords));
+    edgeFormData.append('session_id', sessionId);
+    edgeFormData.append('bus_id', busId);
+    edgeFormData.append('video_source', videoSource);
+    edgeFormData.append('frame_step', req.body.frame_step ? String(req.body.frame_step) : '1');
+
+    const edgeResp = await fetch('http://127.0.0.1:5001/api/edge/process-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: edgeFormData.toString()
+    });
+
+    if (!edgeResp.ok) {
+      const errorText = await edgeResp.text();
+      return res.status(edgeResp.status).json({ error: `Edge AI processing error: ${errorText}` });
+    }
+
+    const edgeResult = await edgeResp.json();
+    console.log(`[Upload Mode AI Pipeline Complete] Session: ${sessionId} | Detections: ${edgeResult.detections_found} | Finalized Events: ${edgeResult.finalized_events_count}`);
+
+    return res.status(200).json({
+      success: true,
+      session_id: sessionId,
+      status: 'PROCESSING_COMPLETE',
+      ...edgeResult
+    });
+  } catch (err) {
+    console.error(`[Upload Mode AI Pipeline Error]`, err);
+    return res.status(500).json({ error: `Failed to trigger Edge AI video processing: ${err.message}` });
+  }
 });
 
 // GET /api/session-gps/:sessionId: Retrieve GPS points for session
@@ -618,7 +690,9 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       gps_timestamp,
       gps_accuracy,
       timestamp_difference_ms,
-      gps_match_status
+      gps_match_status,
+      video_source,
+      source_type
     } = req.body;
 
     const dedupeKey = `${session_id || 'UNKNOWN'}:${candidate_id || event_id}`;
@@ -658,7 +732,40 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       parsedPriority = parsedRiskScore <= 25 ? 'LOW' : (parsedRiskScore <= 50 ? 'MEDIUM' : 'HIGH');
     }
 
-    const evidenceImageUrl = req.file ? `/uploads/evidence/${req.file.filename}` : null;
+    // Resolve Evidence Image URL (Multipart file upload, direct URL, Base64 frame, or local candidate path)
+    let evidenceImageUrl = req.file ? `/uploads/evidence/${req.file.filename}` : null;
+
+    if (!evidenceImageUrl && req.body.evidence_image_url) {
+      evidenceImageUrl = req.body.evidence_image_url.trim();
+    }
+
+    if (!evidenceImageUrl && (req.body.annotated_frame_base64 || req.body.evidence_base64 || req.body.image_base64)) {
+      try {
+        const rawB64 = (req.body.annotated_frame_base64 || req.body.evidence_base64 || req.body.image_base64).trim();
+        const base64Data = rawB64.replace(/^data:image\/\w+;base64,/, '');
+        const imgBuffer = Buffer.from(base64Data, 'base64');
+        const filename = `evidence-${Date.now()}-${Math.floor(100 + Math.random() * 900)}.jpg`;
+        const destPath = path.join(evidenceDir, filename);
+        fs.writeFileSync(destPath, imgBuffer);
+        evidenceImageUrl = `/uploads/evidence/${filename}`;
+        console.log(`[Evidence Store] Saved Base64 evidence image to: ${evidenceImageUrl}`);
+      } catch (b64Err) {
+        console.warn(`[Evidence Store Warning] Failed to save Base64 evidence frame: ${b64Err.message}`);
+      }
+    }
+
+    if (!evidenceImageUrl && req.body.best_frame_path && fs.existsSync(req.body.best_frame_path)) {
+      try {
+        const filename = `evidence-${Date.now()}-${Math.floor(100 + Math.random() * 900)}.jpg`;
+        const destPath = path.join(evidenceDir, filename);
+        fs.copyFileSync(req.body.best_frame_path, destPath);
+        evidenceImageUrl = `/uploads/evidence/${filename}`;
+        console.log(`[Evidence Store] Copied local best candidate frame to: ${evidenceImageUrl}`);
+      } catch (copyErr) {
+        console.warn(`[Evidence Store Warning] Failed to copy candidate evidence frame: ${copyErr.message}`);
+      }
+    }
+
     const taxonomy = resolveEventTaxonomy(class_name);
 
     const eventRecord = {
@@ -692,6 +799,8 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       gps_accuracy: gps_accuracy && !isNaN(parseFloat(gps_accuracy)) ? parseFloat(gps_accuracy) : null,
       timestamp_difference_ms: timestamp_difference_ms && !isNaN(parseInt(timestamp_difference_ms, 10)) ? parseInt(timestamp_difference_ms, 10) : null,
       gps_match_status: gps_match_status || 'UNCHECKED',
+      video_source: req.body.video_source || req.body.video_filename || null,
+      source_type: req.body.source_type || 'LIVE',
       evidence_image_url: evidenceImageUrl
     };
 
@@ -823,12 +932,15 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         video_timestamp: evt.video_timestamp || null,
         processing_timestamp: evt.processing_timestamp || evt.created_at || new Date().toISOString(),
         created_at: evt.created_at || evt.processing_timestamp || new Date().toISOString(),
+        frame_id: evt.frame_id !== undefined ? evt.frame_id : null,
         bus_id: evt.bus_id || 'BUS-101',
         camera_id: evt.camera_id || 'CAM-01',
         session_id: evt.session_id || 'UNKNOWN',
         gps_match_status: evt.gps_match_status || 'UNCHECKED',
         timestamp_difference_ms: evt.timestamp_difference_ms || null,
-        evidence_image_url: evt.evidence_image_url || null
+        evidence_image_url: evt.evidence_image_url || null,
+        video_source: evt.video_source || null,
+        source_type: evt.source_type || 'LIVE'
       };
     });
 

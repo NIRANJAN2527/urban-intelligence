@@ -820,23 +820,47 @@ resetUploadBtn.addEventListener('click', () => {
   uploadedVideoPlayer.src = '';
 });
 
-// AI Processing Standby Button
+// AI Processing for Uploaded Video (Timestamp Synchronization & YOLO Pipeline)
 processAiBtn.addEventListener('click', async () => {
-  if (!uploadedSessionData) return;
+  if (!uploadedSessionData) {
+    showAlert('Please upload a recorded video and GPS dataset first.', 'warning');
+    return;
+  }
+
   try {
     processAiBtn.disabled = true;
-    processAiBtn.textContent = 'Verifying with pipeline...';
+    processAiBtn.innerHTML = '<span class="status-indicator live" style="display:inline-block; margin-right: 6px;"></span> Synchronizing Timestamps & Processing AI...';
 
     const res = await fetch(`/api/process-session/${uploadedSessionData.session_id}`, {
-      method: 'POST'
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_filename: uploadedSessionData.video_filename,
+        gps_records: uploadedGpsRecords,
+        bus_id: uploadedSessionData.bus_id || 'BUS-101',
+        video_source: uploadedSessionData.video_filename
+      })
     });
+
     const data = await res.json();
 
-    showAlert(`AI Pipeline Standby: Session ${data.session_id} is verified and READY for future YOLO models!`, 'info');
-    processAiBtn.textContent = '✓ Pipeline Ready';
-  } catch (err) {
-    showAlert(`Pipeline check failed: ${err.message}`, 'danger');
+    if (!res.ok) {
+      throw new Error(data.error || 'AI processing encountered an error');
+    }
+
+    const eventCount = data.finalized_events_count !== undefined ? data.finalized_events_count : (data.finalized_events ? data.finalized_events.length : 0);
+    const detCount = data.detections_found || 0;
+    const procTime = data.processing_time_seconds || '--';
+
+    showAlert(`✓ AI Processing & Timestamp Synchronization Complete! Processed ${data.processed_frames || 0} frames in ${procTime}s (${data.average_fps || '--'} FPS). Detected ${detCount} potholes, finalized ${eventCount} evidence events.`, 'success');
+    processAiBtn.textContent = `✓ AI Complete (${eventCount} Events Finalized)`;
+    processAiBtn.style.background = '#16a34a';
+    processAiBtn.style.borderColor = '#16a34a';
     processAiBtn.disabled = false;
+  } catch (err) {
+    showAlert(`AI processing failed: ${err.message}`, 'danger');
+    processAiBtn.disabled = false;
+    processAiBtn.textContent = '⚡ Run AI Timestamp Sync & Pothole Detection';
   }
 });
 
