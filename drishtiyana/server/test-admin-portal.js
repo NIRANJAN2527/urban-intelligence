@@ -16,19 +16,22 @@
  */
 
 const http = require('http');
+const https = require('https');
 
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
+    const client = parsed.protocol === 'https:' ? https : http;
     const reqOptions = {
       hostname: parsed.hostname,
       port: parsed.port,
       path: parsed.pathname + parsed.search,
       method: options.method || 'GET',
-      headers: options.headers || {}
+      headers: options.headers || {},
+      rejectUnauthorized: false
     };
 
-    const req = http.request(reqOptions, (res) => {
+    const req = client.request(reqOptions, (res) => {
       let body = '';
       res.on('data', chunk => { body += chunk; });
       res.on('end', () => {
@@ -58,7 +61,7 @@ async function runTests() {
   console.log('=============================================================\n');
 
   let passed = 0;
-  const baseUrl = 'http://localhost:3000';
+  const baseUrl = process.env.TEST_URL || 'https://localhost:3001';
   let authCookie = null;
   let authToken = null;
 

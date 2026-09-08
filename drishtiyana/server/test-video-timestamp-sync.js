@@ -32,8 +32,22 @@ async function runTest() {
 
   // Step 2: Upload Video & GPS Files
   console.log('\n[Step 2] Uploading video and GPS to /api/upload-session...');
-  const videoPath = path.join(__dirname, 'uploads', 'ruralRoad_potHoles-1788881907973.mp4');
-  const gpsPath = path.join(__dirname, '../sample_data/pothole_test_01.csv');
+  let videoPath = path.join(__dirname, '../data/ruralRoad_potHoles.mp4');
+  if (!fs.existsSync(videoPath)) {
+    videoPath = path.join(__dirname, '../../drishtiyana/data/ruralRoad_potHoles.mp4');
+  }
+  if (!fs.existsSync(videoPath)) {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (fs.existsSync(uploadDir)) {
+      const vids = fs.readdirSync(uploadDir).filter(f => f.startsWith('ruralRoad_potHoles') && f.endsWith('.mp4'));
+      if (vids.length > 0) videoPath = path.join(uploadDir, vids[0]);
+    }
+  }
+
+  let gpsPath = path.join(__dirname, '../sample_data/pothole_test_01.csv');
+  if (!fs.existsSync(gpsPath)) {
+    gpsPath = path.join(__dirname, '../../drishtiyana/sample_data/pothole_test_01.csv');
+  }
 
   if (!fs.existsSync(videoPath)) {
     throw new Error(`Video file not found at ${videoPath}`);

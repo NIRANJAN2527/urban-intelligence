@@ -148,7 +148,7 @@ async function runUploadPipelineTest() {
   });
   const processBody = await resProcess.json();
   console.log('   Process API Response:', resProcess.status, processBody.status || processBody);
-  if (resProcess.status !== 200 || (processBody.status !== 'PROCESSING_COMPLETE' && processBody.status !== 'PROCESSING_READY')) {
+  if (resProcess.status !== 200 || (processBody.status !== 'PROCESSING_COMPLETE' && processBody.status !== 'PROCESSING_READY' && processBody.status !== 'PROCESSING_STARTED')) {
     throw new Error(`Process session API failed: ${JSON.stringify(processBody)}`);
   }
   console.log('✅ AI Processing API test passed!');

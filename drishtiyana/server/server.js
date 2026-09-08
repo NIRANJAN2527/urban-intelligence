@@ -41,10 +41,21 @@ if (!fs.existsSync(evidenceDir)) {
 // Serve uploaded evidence frames
 app.use('/uploads', express.static(uploadsDir));
 
-// HTTP -> HTTPS redirect middleware for browser pages (preserves /ca.crt, /ca.pem, and backend API calls)
+// HTTP -> HTTPS redirect middleware for browser pages (preserves /ca.crt, /ca.pem, static assets, and /mobile)
 app.use((req, res, next) => {
   if (!req.secure && req.socket && req.socket.localPort === HTTP_PORT) {
-    const isExempt = req.path === '/ca.crt' || req.path === '/ca.pem' || req.path.startsWith('/api/');
+    const isExempt = req.path === '/ca.crt' ||
+                     req.path === '/ca.pem' ||
+                     req.path.startsWith('/api/') ||
+                     req.path === '/mobile' ||
+                     req.path === '/mobile.html' ||
+                     req.path.endsWith('.js') ||
+                     req.path.endsWith('.css') ||
+                     req.path.endsWith('.png') ||
+                     req.path.endsWith('.jpg') ||
+                     req.path.endsWith('.svg') ||
+                     req.path.endsWith('.ico') ||
+                     req.path.startsWith('/socket.io/');
     if (!isExempt) {
       const hostHeader = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
       return res.redirect(302, `https://${hostHeader}:${HTTPS_PORT}${req.originalUrl}`);
@@ -58,16 +69,18 @@ const publicDir = path.join(__dirname, '..', 'public');
 app.use(express.static(publicDir));
 
 // ==============================================================================
-// CONFIGURABLE AI CONFIDENCE THRESHOLDS & VERIFICATION GATEWAY
+// CONFIDENCE-BASED POTHOLE ACCEPTANCE GATEWAY (NO MANUAL VERIFICATION)
+// Confidence >= 0.80 -> ACCEPTED automatically (no admin approval required)
+// Confidence < 0.80 -> IGNORED / Discarded completely
 // ==============================================================================
-const AUTO_VERIFY_THRESHOLD = parseFloat(process.env.AUTO_VERIFY_THRESHOLD || '0.90');
-const REVIEW_THRESHOLD = parseFloat(process.env.REVIEW_THRESHOLD || '0.60');
+const CONFIDENCE_ACCEPTANCE_THRESHOLD = 0.80;
+const AUTO_VERIFY_THRESHOLD = 0.80; // Maintained for backward compatibility
+const REVIEW_THRESHOLD = 0.80;      // Deprecated: review workflow removed
 
 /**
- * Evaluates the confidence verification gate for incoming or legacy detections:
- * - confidence >= AUTO_VERIFY_THRESHOLD (>= 0.90) -> VERIFIED / AUTO_VERIFIED (is_active: true)
- * - REVIEW_THRESHOLD <= confidence < AUTO_VERIFY_THRESHOLD (0.60 - 0.8999) -> PENDING_REVIEW / HUMAN_REVIEW_REQUIRED (is_active: true)
- * - confidence < REVIEW_THRESHOLD (< 0.60) -> REJECTED / AUTO_REJECTED (is_active: false)
+ * Pothole acceptance evaluation:
+ * - confidence >= 0.80 -> ACCEPTED (is_active: true)
+ * - confidence < 0.80 -> IGNORED / Discarded (is_active: false)
  */
 function evaluateVerificationGate(confidence, explicitStatus = null, explicitMethod = null) {
   const conf = typeof confidence === 'number' ? confidence : parseFloat(confidence || 0);
@@ -75,7 +88,7 @@ function evaluateVerificationGate(confidence, explicitStatus = null, explicitMet
   // If explicit status was specified in the payload (e.g. from tests or prior system step)
   if (explicitStatus) {
     const status = String(explicitStatus).toUpperCase();
-    const method = explicitMethod || (status === 'VERIFIED' ? 'HUMAN_VERIFIED' : (status === 'REJECTED' ? 'HUMAN_REJECTED' : 'HUMAN_REVIEW_REQUIRED'));
+    const method = explicitMethod || (status === 'ACCEPTED' || status === 'VERIFIED' ? 'AUTO_ACCEPTED' : (status === 'REJECTED' ? 'AUTO_REJECTED' : 'AUTO_ACCEPTED'));
     return {
       verification_status: status,
       verification_method: method,
@@ -83,17 +96,11 @@ function evaluateVerificationGate(confidence, explicitStatus = null, explicitMet
     };
   }
 
-  // Automated Gate Evaluation
-  if (conf >= AUTO_VERIFY_THRESHOLD) {
+  // Automated Gate Evaluation: strictly >= 0.80 is ACCEPTED, < 0.80 is REJECTED/IGNORED
+  if (conf >= CONFIDENCE_ACCEPTANCE_THRESHOLD) {
     return {
-      verification_status: 'VERIFIED',
-      verification_method: 'AUTO_VERIFIED',
-      is_active: true
-    };
-  } else if (conf >= REVIEW_THRESHOLD) {
-    return {
-      verification_status: 'PENDING_REVIEW',
-      verification_method: 'HUMAN_REVIEW_REQUIRED',
+      verification_status: 'ACCEPTED',
+      verification_method: 'AUTO_ACCEPTED',
       is_active: true
     };
   } else {
@@ -968,24 +975,25 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     } = req.body;
 
     const dedupeKey = `${session_id || 'UNKNOWN'}:${candidate_id || event_id}`;
-    if (dedupeKey && processedCandidateEvents.has(dedupeKey)) {
-      console.log(`[Server Idempotency] Duplicate candidate event rejected: ${dedupeKey}`);
-      if (req.file && fs.existsSync(req.file.path)) {
-        try { fs.unlinkSync(req.file.path); } catch (_) {}
-      }
-      return res.status(200).json({
-        success: true,
-        duplicate: true,
-        action: 'RETAINED',
-        event_id: event_id || dedupeKey,
-        candidate_id: candidate_id || null,
-        message: 'Candidate event has already been finalized and recorded.'
-      });
-    }
-
     const newLat = latitude && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null;
     const newLon = longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null;
     const newConf = confidence && !isNaN(parseFloat(confidence)) ? parseFloat(confidence) : 0.0;
+
+    // STRICT CONFIDENCE RULE:
+    // confidence >= 0.80 -> ACCEPTED automatically (no admin approval)
+    // confidence < 0.80 -> IGNORE completely (no DB event, no evidence, no GIS marker, no report)
+    if (newConf < CONFIDENCE_ACCEPTANCE_THRESHOLD) {
+      if (req.file && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      console.log(`[Pothole Acceptance Gate] Discarded detection: confidence ${(newConf * 100).toFixed(1)}% is below 80% threshold`);
+      return res.status(200).json({
+        success: true,
+        action: 'IGNORED',
+        confidence: newConf,
+        message: `Detection ignored: AI confidence ${(newConf * 100).toFixed(1)}% < 80% acceptance threshold.`
+      });
+    }
 
     // Determine deterministic risk score, level, and priority
     let parsedRiskScore = risk_score !== undefined && !isNaN(parseInt(risk_score, 10)) ? parseInt(risk_score, 10) : null;
@@ -1049,7 +1057,19 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     let duplicateTarget = null;
     let minDistance = Infinity;
 
-    if (newLat !== null && newLon !== null && session_id) {
+    // 1. Direct candidate_id or event_id match
+    if (candidate_id || event_id) {
+      for (const existing of inMemoryEvents.values()) {
+        if ((candidate_id && existing.candidate_id === candidate_id) || (event_id && existing.event_id === event_id)) {
+          duplicateTarget = existing;
+          minDistance = 0;
+          break;
+        }
+      }
+    }
+
+    // 2. Spatial 10-meter proximity match within same session
+    if (!duplicateTarget && newLat !== null && newLon !== null && session_id) {
       const incomingClass = (class_name || 'pothole').toLowerCase();
       for (const existing of inMemoryEvents.values()) {
         if (existing.session_id === session_id) {
@@ -1104,16 +1124,14 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
         if (bbox_x2) duplicateTarget.bbox_x2 = parseInt(bbox_x2, 10);
         if (bbox_y2) duplicateTarget.bbox_y2 = parseInt(bbox_y2, 10);
 
-        // If not human verified, update verification gate with higher confidence
-        if (duplicateTarget.verification_method !== 'HUMAN_VERIFIED') {
-          const updatedGate = evaluateVerificationGate(newConf);
-          duplicateTarget.verification_status = updatedGate.verification_status;
-          duplicateTarget.verification_method = updatedGate.verification_method;
-          duplicateTarget.is_active = updatedGate.is_active;
-          if (updatedGate.verification_status === 'VERIFIED' && !duplicateTarget.verified_at) {
-            duplicateTarget.verified_at = new Date().toISOString();
-            duplicateTarget.verified_by = 'SYSTEM_AUTO_VERIFY';
-          }
+        // Pothole detection >= 0.80 is automatically ACCEPTED without manual verification
+        duplicateTarget.status = 'ACCEPTED';
+        duplicateTarget.verification_status = 'ACCEPTED';
+        duplicateTarget.verification_method = 'AUTO_ACCEPTED';
+        duplicateTarget.is_active = true;
+        if (!duplicateTarget.verified_at) {
+          duplicateTarget.verified_at = new Date().toISOString();
+          duplicateTarget.verified_by = 'AUTO_ACCEPTED';
         }
 
         if (parsedRiskScore !== null && parsedRiskScore > (duplicateTarget.risk_score || 0)) {
@@ -1186,6 +1204,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       req.body.verification_method || null
     );
 
+    const hasValidCoords = newLat !== null && newLon !== null && (newLat !== 0 || newLon !== 0);
     const eventRecord = {
       event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
       candidate_id: candidate_id || null,
@@ -1195,7 +1214,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       priority: parsedPriority,
       category: req.body.category || taxonomy.category,
       department: req.body.department || taxonomy.department,
-      status: req.body.status || 'NEW',
+      status: 'ACCEPTED',
       report_status: req.body.report_status || 'PENDING',
       report_id: req.body.report_id || null,
       work_order_id: req.body.work_order_id || null,
@@ -1211,8 +1230,8 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       bbox_y1: bbox_y1 ? parseInt(bbox_y1, 10) : null,
       bbox_x2: bbox_x2 ? parseInt(bbox_x2, 10) : null,
       bbox_y2: bbox_y2 ? parseInt(bbox_y2, 10) : null,
-      latitude: newLat,
-      longitude: newLon,
+      latitude: hasValidCoords ? newLat : null,
+      longitude: hasValidCoords ? newLon : null,
       gps_timestamp: gps_timestamp || null,
       gps_accuracy: gps_accuracy && !isNaN(parseFloat(gps_accuracy)) ? parseFloat(gps_accuracy) : null,
       timestamp_difference_ms: timestamp_difference_ms && !isNaN(parseInt(timestamp_difference_ms, 10)) ? parseInt(timestamp_difference_ms, 10) : null,
@@ -1220,14 +1239,14 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       video_source: req.body.video_source || req.body.video_filename || null,
       source_type: req.body.source_type || 'UPLOAD',
       evidence_image_url: evidenceImageUrl,
-      verification_status: gateResult.verification_status,
-      verification_method: gateResult.verification_method,
-      is_active: req.body.is_active !== undefined ? (req.body.is_active === true || req.body.is_active === 'true' || req.body.is_active === 1) : gateResult.is_active,
-      verified_at: gateResult.verification_status === 'VERIFIED' ? new Date().toISOString() : null,
-      verified_by: gateResult.verification_method === 'AUTO_VERIFIED' ? 'SYSTEM_AUTO_VERIFY' : null,
-      rejected_at: gateResult.verification_status === 'REJECTED' ? new Date().toISOString() : null,
-      rejected_by: gateResult.verification_method === 'AUTO_REJECTED' ? 'SYSTEM_CONFIDENCE_GATE' : null,
-      rejection_reason: gateResult.verification_status === 'REJECTED' ? `Confidence ${(newConf * 100).toFixed(1)}% is below review threshold ${(REVIEW_THRESHOLD * 100).toFixed(0)}%` : null
+      verification_status: gateResult.verification_status || 'ACCEPTED',
+      verification_method: gateResult.verification_method || 'AUTO_ACCEPTED',
+      is_active: true,
+      verified_at: new Date().toISOString(),
+      verified_by: 'AUTO_ACCEPTED',
+      rejected_at: null,
+      rejected_by: null,
+      rejection_reason: null
     };
 
     // Cache in in-memory event store
@@ -1350,6 +1369,10 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
     // Enrich each event with taxonomy metadata
     let enriched = allEvents.map(evt => {
       const tax = resolveEventTaxonomy(evt.class_name || evt.problem || 'Pothole');
+      const rawLat = (evt.latitude !== undefined && evt.latitude !== null && !isNaN(parseFloat(evt.latitude))) ? parseFloat(evt.latitude) : null;
+      const rawLon = (evt.longitude !== undefined && evt.longitude !== null && !isNaN(parseFloat(evt.longitude))) ? parseFloat(evt.longitude) : null;
+      const hasCoords = rawLat !== null && rawLon !== null && (rawLat !== 0 || rawLon !== 0);
+
       return {
         event_id: evt.event_id,
         candidate_id: evt.candidate_id || null,
@@ -1360,7 +1383,7 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         problem: evt.class_name || evt.problem || tax.problem,
         class_name: evt.class_name || evt.problem || tax.problem,
         department: evt.department || tax.department,
-        status: evt.status || 'NEW',
+        status: evt.status || 'ACCEPTED',
         report_status: evt.report_status || 'PENDING',
         report_id: evt.report_id || null,
         work_order_id: evt.work_order_id || null,
@@ -1368,8 +1391,8 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         risk_score: evt.risk_score !== undefined && evt.risk_score !== null ? parseInt(evt.risk_score, 10) : 50,
         risk_level: evt.risk_level || 'MEDIUM',
         priority: evt.priority || 'MEDIUM',
-        latitude: evt.latitude !== undefined && evt.latitude !== null ? parseFloat(evt.latitude) : null,
-        longitude: evt.longitude !== undefined && evt.longitude !== null ? parseFloat(evt.longitude) : null,
+        latitude: hasCoords ? rawLat : null,
+        longitude: hasCoords ? rawLon : null,
         gps_timestamp: evt.gps_timestamp || null,
         video_timestamp: evt.video_timestamp || null,
         processing_timestamp: evt.processing_timestamp || evt.created_at || new Date().toISOString(),
@@ -1383,9 +1406,9 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         evidence_image_url: evt.evidence_image_url || null,
         video_source: evt.video_source || null,
         source_type: evt.source_type || 'LIVE',
-        // Safe legacy fallback: Do NOT fabricate human verification, default missing status to PENDING_REVIEW
-        verification_status: evt.verification_status || (evt.status === 'VERIFIED' ? 'VERIFIED' : 'PENDING_REVIEW'),
-        verification_method: evt.verification_method || (evt.verification_status === 'VERIFIED' ? (evt.confidence >= AUTO_VERIFY_THRESHOLD ? 'AUTO_VERIFIED' : 'HUMAN_VERIFIED') : 'HUMAN_REVIEW_REQUIRED'),
+        // Acceptance status for pothole detections
+        verification_status: evt.verification_status || (evt.status === 'REJECTED' ? 'REJECTED' : 'ACCEPTED'),
+        verification_method: evt.verification_method || 'AUTO_ACCEPTED',
         is_active: evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true,
         verified_at: evt.verified_at || null,
         verified_by: evt.verified_by || null,
@@ -1395,12 +1418,12 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
       };
     });
 
-    // Verification status filter
+    // Verification / acceptance status filter
     if (verification_status && verification_status !== 'all') {
-      enriched = enriched.filter(e => (e.verification_status || 'PENDING_REVIEW').toUpperCase() === verification_status.toUpperCase());
+      enriched = enriched.filter(e => (e.verification_status || 'ACCEPTED').toUpperCase() === verification_status.toUpperCase());
     } else if (include_inactive !== 'true' && verification_status !== 'all') {
       // By default exclude soft-deleted/rejected events from active views unless explicitly requested
-      enriched = enriched.filter(e => e.is_active !== false && (e.verification_status || 'PENDING_REVIEW') !== 'REJECTED');
+      enriched = enriched.filter(e => e.is_active !== false && (e.verification_status || 'ACCEPTED') !== 'REJECTED');
     }
 
     // Filter layer
@@ -1492,11 +1515,11 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
       const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
       const isActive = evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true;
 
-      if (vStat === 'VERIFIED') verifiedCount++;
+      if (vStat === 'ACCEPTED' || vStat === 'VERIFIED') verifiedCount++;
       else if (vStat === 'REJECTED' || !isActive) rejectedCount++;
-      else pendingReview++;
+      else verifiedCount++;
 
-      if (stat === 'NEW') newEvents++;
+      if (stat === 'NEW' || stat === 'ACCEPTED') newEvents++;
       if (prio === 'HIGH') highPriority++;
       if (rLvl === 'CRITICAL') criticalEvents++;
       if (repStat === 'SENT') reportsDispatched++;
@@ -1514,8 +1537,9 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
       stats: {
         total_events: total,
         total_detections: total,
-        pending_review: pendingReview,
+        accepted: verifiedCount,
         verified: verifiedCount,
+        pending_review: 0,
         rejected: rejectedCount,
         reports_sent: reportsDispatched,
         new_events: newEvents,
@@ -1695,12 +1719,11 @@ app.post('/api/admin/reports/send', requireAdminAuth, async (req, res) => {
       return res.status(404).json({ success: false, error: `Event not found: ${event_id}` });
     }
 
-    // Strict verification requirement: Candidates in PENDING_REVIEW or REJECTED cannot be dispatched
-    const currentVerification = (event.verification_status || 'PENDING_REVIEW').toUpperCase();
-    if (currentVerification !== 'VERIFIED' || event.is_active === false) {
+    // Reporting eligibility: Event must be active and not rejected/discarded
+    if (event.is_active === false || (event.verification_status && event.verification_status.toUpperCase() === 'REJECTED')) {
       return res.status(400).json({
         success: false,
-        error: `Cannot dispatch report: Incident must be VERIFIED before reporting (current status: ${currentVerification}).`
+        error: `Cannot dispatch report: Incident is inactive or discarded.`
       });
     }
 
