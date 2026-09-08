@@ -1,0 +1,5 @@
+predict: ../../../input/pothole-videos
+
+nc: 1
+names: ['Pothole']
+
