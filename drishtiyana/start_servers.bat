@@ -8,6 +8,12 @@ echo.
 
 cd /d "%~dp0"
 
+echo [IMPORTANT] Security Notice:
+echo - Certificates have been installed for trusted HTTPS
+echo - If you see 'Not Secure' warnings, restart your browser
+echo - For mobile: install ca.crt from http://<IP>:3000/ca.crt
+echo.
+
 echo [1/2] Starting Edge AI Microservice (Port 5001)...
 start "DRISHTIYANA Edge AI (Port 5001)" cmd /k "cd /d "%~dp0edge_ai" && python edge_service.py"
 
@@ -24,4 +30,11 @@ echo - Laptop Viewer: https://localhost:3001/viewer
 echo - Phone Stream : Check Node.js terminal for mobile HTTPS URL
 echo - Mobile Root CA: http://localhost:3000/ca.crt
 echo ========================================================
+echo.
+echo SECURITY NOTES:
+echo - All websites now use trusted HTTPS certificates
+echo - Browser should show SECURE (lock icon) for all pages
+echo - If you still see warnings, restart your browser completely
+echo - Clear SSL state: Internet Options > Content > Clear SSL state
+echo.
 pause

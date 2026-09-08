@@ -119,7 +119,7 @@ def parse_gps_source(gps_source: Any) -> List[Dict[str, Any]]:
         if not ts_raw:
             continue
         lat = item.get("latitude") if item.get("latitude") is not None else item.get("lat")
-        lon = item.get("longitude") if item.get("longitude") is not None else (item.get("lon") or item.get("lng"))
+        lon = item.get("longitude") if item.get("longitude") is not None else (item.get("lon") if item.get("lon") is not None else item.get("lng"))
         if lat is None or lon is None:
             continue
 

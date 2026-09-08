@@ -96,7 +96,7 @@ const reportLockNotice = document.getElementById('reportLockNotice');
 
 // DOM Elements - Filter Bar
 const verificationFilterGroup = document.getElementById('verificationFilterGroup');
-let currentVerificationFilter = 'PENDING_REVIEW'; // Default view emphasizes Pending Review
+let currentVerificationFilter = 'all'; // Accepted detections shown by default
 
 const filterSearchInput = document.getElementById('filterSearchInput');
 const filterCategorySelect = document.getElementById('filterCategorySelect');
@@ -201,6 +201,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   initGisMap();
   setupSidebarNavigation();
+  setupMobileSidebar();
   setupFilterListeners();
   setupVerificationButtons();
   setupSocketListeners();
@@ -265,12 +266,8 @@ function initGisMap() {
       </div>
       <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(30,41,59,0.25); font-size: 11px;">
         <div class="gis-legend-row">
-          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#D97706; border:1px solid #78350F; margin-right:2px;"></span>
-          <span>⏳ <strong>Candidate (Pending)</strong></span>
-        </div>
-        <div class="gis-legend-row">
-          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#15803D; border:1px solid #14532D; margin-right:2px;"></span>
-          <span>✓ <strong>Verified Defect</strong></span>
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#15803D; border:1px solid #14532D; margin-right:4px;"></span>
+          <span>🟢 <strong>Accepted Detection (Confidence ≥ 80%)</strong></span>
         </div>
       </div>
     `;
@@ -294,13 +291,15 @@ function initGisMap() {
 
   // CRITICAL FIX: ResizeObserver on map container guarantees full height without blank lower half
   const mapContainer = document.getElementById('adminGisMap');
-  if (window.ResizeObserver && mapContainer) {
+  const mapCard = document.querySelector('.admin-map-card');
+  if (window.ResizeObserver) {
     const resizeObserver = new ResizeObserver(() => {
       if (leafletMap) {
         leafletMap.invalidateSize();
       }
     });
-    resizeObserver.observe(mapContainer);
+    if (mapContainer) resizeObserver.observe(mapContainer);
+    if (mapCard) resizeObserver.observe(mapCard);
   }
 
   window.addEventListener('resize', () => {
@@ -349,14 +348,10 @@ function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
   }
 
   const isCritical = (riskLevel || '').toUpperCase() === 'CRITICAL';
-  const vStat = (verificationStatus || 'PENDING_REVIEW').toUpperCase();
+  const vStat = (verificationStatus || 'ACCEPTED').toUpperCase();
 
-  let vClass = 'marker-pending';
-  let vBadgeHtml = '<span class="marker-vbadge pending" title="Pothole: Pending Review">⏳</span>';
-  if (vStat === 'VERIFIED') {
-    vClass = 'marker-verified';
-    vBadgeHtml = '<span class="marker-vbadge verified" title="Pothole: Verified">✓</span>';
-  }
+  const vClass = 'marker-verified';
+  const vBadgeHtml = '<span class="marker-vbadge verified" title="Pothole: Accepted Detection">✓</span>';
 
   // Use crisp road-damage SVG for potholes
   let innerIconHtml = iconEmoji;
@@ -373,7 +368,7 @@ function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
   return L.divIcon({
     className: 'gis-marker-container',
     html: `
-      <div class="gis-marker-pin ${catClass} ${subClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Pothole'} (${vStat === 'VERIFIED' ? 'Verified' : 'Pending Review'})">
+      <div class="gis-marker-pin ${catClass} ${subClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Pothole'} (Accepted Detection)">
         ${innerIconHtml}
         ${vBadgeHtml}
       </div>
@@ -477,22 +472,19 @@ function applyDepartmentFiltersAndRender() {
   }
 
   // 3. Calculate sub-counts for the active department
-  const subPending = deptFiltered.filter(e => (e.verification_status || 'PENDING_REVIEW').toUpperCase() === 'PENDING_REVIEW').length;
-  const subVerified = deptFiltered.filter(e => (e.verification_status || '').toUpperCase() === 'VERIFIED' && (e.report_status || '').toUpperCase() !== 'SENT').length;
+  const subAccepted = deptFiltered.filter(e => (e.status || '').toUpperCase() === 'ACCEPTED' || (e.verification_status || '').toUpperCase() === 'ACCEPTED' || (e.verification_status || '').toUpperCase() === 'VERIFIED').length;
   const subReported = deptFiltered.filter(e => (e.report_status || '').toUpperCase() === 'SENT').length;
   const subAll = deptFiltered.length;
 
-  if (subCountPendingEl) subCountPendingEl.textContent = subPending;
-  if (subCountVerifiedEl) subCountVerifiedEl.textContent = subVerified;
+  const subCountAcceptedEl = document.getElementById('subCountAccepted');
+  if (subCountAcceptedEl) subCountAcceptedEl.textContent = subAccepted;
   if (subCountReportedEl) subCountReportedEl.textContent = subReported;
   if (subCountAllEl) subCountAllEl.textContent = subAll;
 
   // 4. Filter by sub-status tab
   let finalFiltered = deptFiltered;
-  if (currentSubFilter === 'PENDING_REVIEW') {
-    finalFiltered = deptFiltered.filter(e => (e.verification_status || 'PENDING_REVIEW').toUpperCase() === 'PENDING_REVIEW');
-  } else if (currentSubFilter === 'VERIFIED') {
-    finalFiltered = deptFiltered.filter(e => (e.verification_status || '').toUpperCase() === 'VERIFIED');
+  if (currentSubFilter === 'ACCEPTED') {
+    finalFiltered = deptFiltered.filter(e => (e.status || '').toUpperCase() === 'ACCEPTED' || (e.verification_status || '').toUpperCase() === 'ACCEPTED' || (e.verification_status || '').toUpperCase() === 'VERIFIED');
   } else if (currentSubFilter === 'REPORTED') {
     finalFiltered = deptFiltered.filter(e => (e.report_status || '').toUpperCase() === 'SENT');
   }
@@ -531,6 +523,19 @@ function selectSubFilter(subName) {
   applyDepartmentFiltersAndRender();
 }
 
+// Admin Portal Validation: Events without valid GPS and frame image must not appear in the Admin Portal
+function hasAdminPortalRequirements(evt) {
+  if (!evt) return false;
+  const lat = evt.latitude !== undefined && evt.latitude !== null ? parseFloat(evt.latitude) : NaN;
+  const lon = evt.longitude !== undefined && evt.longitude !== null ? parseFloat(evt.longitude) : NaN;
+  const hasValidGps = Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0);
+  const img = evt.evidence_image_url || evt.image_url || evt.evidence_url || evt.frame_image || evt.evidence_image;
+  const hasValidFrameImage = typeof img === 'string' && img.trim().length > 0 &&
+                             img.trim().toLowerCase() !== 'null' && img.trim().toLowerCase() !== 'undefined' &&
+                             img.trim().toLowerCase() !== 'n/a' && img.trim().toLowerCase() !== 'none';
+  return hasValidGps && hasValidFrameImage;
+}
+
 async function fetchAndRenderEvents() {
   try {
     const params = new URLSearchParams();
@@ -548,7 +553,7 @@ async function fetchAndRenderEvents() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
-    allEventsCache = data.events || [];
+    allEventsCache = (data.events || []).filter(hasAdminPortalRequirements);
 
     applyDepartmentFiltersAndRender();
   } catch (err) {
@@ -579,104 +584,51 @@ function renderMapMarkers(events) {
       return;
     }
 
-    if (evt.latitude === null || evt.longitude === null) return;
+    if (evt.latitude === null || evt.longitude === null || evt.latitude === undefined || evt.longitude === undefined) return;
     const lat = parseFloat(evt.latitude);
     const lon = parseFloat(evt.longitude);
-    if (isNaN(lat) || isNaN(lon)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return;
 
     validCoordsCount++;
-    const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, vStat);
+    const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, 'ACCEPTED');
     const marker = L.marker([lat, lon], { icon }).addTo(leafletMap);
 
     const confVal = typeof evt.confidence === 'number' ? evt.confidence : parseFloat(evt.confidence || 0);
     const confPct = Math.round(confVal * 100);
-    const dateFormatted = evt.created_at ? new Date(evt.created_at).toLocaleString() : 'N/A';
-    const coordsFormatted = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-    
-    // Address if available in event or cache; else fallback strictly to real coordinates (no fabrication)
-    const cachedAddress = clientAddressCache.get(`${lat.toFixed(6)},${lon.toFixed(6)}`) || evt.address;
-    const locationDisplay = cachedAddress || coordsFormatted;
-
-    const imgHtml = evt.evidence_image_url
-      ? `<div style="position: relative; width: 100%; height: 105px; border-radius: 6px; overflow: hidden; margin-bottom: 8px; border: 1.5px solid #1E293B; background: #0F172A;">
-           <img src="${evt.evidence_image_url}" onerror="this.outerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#94a3b8;font-size:11px;\\'>Evidence unavailable</div>'" style="width: 100%; height: 100%; object-fit: cover;">
-           <span style="position: absolute; bottom: 4px; left: 4px; background: rgba(15,23,42,0.85); color: #fff; font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px;">AI DETECTION</span>
-         </div>`
-      : `<div style="background: #F1F5F9; color: #64748B; padding: 10px; border-radius: 6px; font-size: 11px; text-align: center; margin-bottom: 8px; border: 1px solid #CBD5E1;">📷 Physical evidence frame unavailable</div>`;
-
-    const vBadgeStyle = vStat === 'VERIFIED'
-      ? 'background: #DCFCE7; color: #15803D; border: 1.5px solid #16A34A;'
-      : 'background: #FEF3C7; color: #B45309; border: 1.5px solid #D97706;';
-
-    const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
-    const prio = (evt.priority || 'MEDIUM').toUpperCase();
-
-    // Visual confidence assessment text
-    let confText = `${confPct}% (Low Confidence)`;
-    if (confVal >= 0.90) confText = `${confPct}% (High Confidence - Auto-verified)`;
-    else if (confVal >= 0.60) confText = `${confPct}% (Moderate - Review Required)`;
-
-    const vMethodText = evt.verification_method || (vStat === 'VERIFIED' ? (confVal >= 0.90 ? 'AUTO_VERIFIED' : 'HUMAN_VERIFIED') : 'HUMAN_REVIEW_REQUIRED');
-
-    // Quick review actions in popup if pending
-    let popupReviewActions = '';
-    if (vStat === 'PENDING_REVIEW') {
-      popupReviewActions = `
-        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
-          <button onclick="directVerifyEvent('${evt.event_id}')" style="flex: 1; padding: 6px 8px; background: #15803D; color: #ffffff; border: 1.5px solid #14532D; border-radius: 5px; font-size: 11px; font-weight: 800; cursor: pointer;" title="Confirm and verify this detection">
-            ✓ [ VERIFY ]
-          </button>
-          <button onclick="directRejectEvent('${evt.event_id}')" style="flex: 1; padding: 6px 8px; background: #FEE2E2; color: #991B1B; border: 1.5px solid #DC2626; border-radius: 5px; font-size: 11px; font-weight: 800; cursor: pointer;" title="Mark as false positive / discard">
-            ✕ [ REJECT ]
-          </button>
-        </div>
-      `;
-    }
+    const timeFormatted = evt.created_at
+      ? new Date(evt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : 'N/A';
 
     marker.bindPopup(`
-      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 240px; max-width: 290px; line-height: 1.45; color: #1E293B;">
-        ${imgHtml}
-        
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 4px;">
-          <div>
-            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.04em;">${evt.category || 'Road & Infrastructure'}</div>
-            <strong style="color: #0F172A; font-size: 14px; display: block;">${evt.problem || evt.class_name || 'Pothole'}</strong>
-          </div>
-          <span style="font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 4px; white-space: nowrap; ${vBadgeStyle}">
-            ${vStat === 'VERIFIED' ? '✓ VERIFIED' : '⏳ PENDING'}
+      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 210px; max-width: 260px; line-height: 1.45; color: #1E293B;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <strong style="color: #0F172A; font-size: 13px; text-transform: uppercase; font-weight: 800;">${evt.problem || evt.class_name || 'POTHOLE'}</strong>
+          <span style="font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; background: #DCFCE7; color: #15803D; border: 1px solid #BBF7D0;">
+            ✓ ACCEPTED
           </span>
         </div>
 
-        <div style="background: #F8FAFC; border: 1.5px solid rgba(30,41,59,0.2); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px;">
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="color: #64748B;">AI Confidence:</span>
-            <strong style="color: ${confVal >= 0.90 ? '#15803D' : (confVal >= 0.60 ? '#D97706' : '#64748B')}; font-weight: 800;">${confText}</strong>
+            <span style="color: #64748B;">Confidence:</span>
+            <strong style="color: #15803D; font-weight: 800;">${confPct}%</strong>
           </div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="color: #64748B;">Verification Method:</span>
-            <strong style="color: #0F172A; font-weight: 700;">${vMethodText}</strong>
+            <span style="color: #64748B;">Location:</span>
+            <span style="font-family: var(--font-mono); font-size: 10.5px; color: #1E293B;">${lat.toFixed(6)}, ${lon.toFixed(6)}</span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="color: #64748B;">Risk / Priority:</span>
-            <strong>${rLvl} / ${prio}</strong>
+            <span style="color: #64748B;">Time:</span>
+            <span style="color: #1E293B; font-weight: 500;">${timeFormatted}</span>
           </div>
           <div style="display: flex; justify-content: space-between;">
-            <span style="color: #64748B;">Event ID:</span>
-            <span style="font-family: var(--font-mono); font-size: 10px; color: #334155;">${evt.event_id || '--'}</span>
+            <span style="color: #64748B;">Bus:</span>
+            <span style="color: #1E293B; font-weight: 600;">${evt.bus_id || 'BUS-001'}</span>
           </div>
         </div>
 
-        <div style="font-size: 11px; color: #334155; margin-bottom: 8px; line-height: 1.5;">
-          <div>📍 <strong>Location:</strong> ${locationDisplay}</div>
-          <div>🕒 <strong>Time (UTC):</strong> ${dateFormatted}</div>
-          <div>🚌 <strong>Bus / Unit:</strong> ${evt.bus_id || 'BUS-101'}${evt.session_id ? ' (' + evt.session_id.substring(0, 10) + '...)' : ''}</div>
-          <div>🏢 <strong>Department:</strong> ${evt.department || 'ROAD MAINTENANCE'}</div>
-        </div>
-
-        ${popupReviewActions}
-
-        <button onclick="selectEventById('${evt.event_id}')" style="width: 100%; padding: 7px 10px; background: #15803D; color: #ffffff; border: 1.5px solid #14532D; border-radius: 6px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 2px 5px rgba(21,128,61,0.25);">
-          <span>🔍</span> [ VIEW FULL DETAILS ]
+        <button onclick="selectEventById('${evt.event_id}', false)" style="width: 100%; padding: 6px 10px; background: #15803D; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+          <span>🔍</span> View Details
         </button>
       </div>
     `);
@@ -729,16 +681,19 @@ function renderEventsTable(events) {
     else if (stat === 'IN_PROGRESS') statClass = 'status-in_progress';
     else if (stat === 'RESOLVED') statClass = 'status-resolved';
 
-    let vBadgeHtml = `<span class="badge-v-pending">⏳ PENDING</span>`;
-    if (vStat === 'VERIFIED') {
-      vBadgeHtml = `<span class="badge-v-verified">✓ VERIFIED</span>`;
-    } else if (vStat === 'REJECTED' || evt.is_active === false) {
-      vBadgeHtml = `<span class="badge-v-rejected">✕ REJECTED</span>`;
+    const isAccepted = evt.is_active !== false && (vStat === 'ACCEPTED' || vStat === 'VERIFIED' || stat === 'ACCEPTED');
+    let vBadgeHtml = `<span class="badge-v-verified" style="background:#DCFCE7;color:#15803D;border:1.5px solid #16A34A;font-weight:700;padding:2px 6px;border-radius:4px;font-size:0.75rem;">ACCEPTED</span>`;
+    if (!isAccepted && (vStat === 'REJECTED' || evt.is_active === false)) {
+      vBadgeHtml = `<span class="badge-v-rejected" style="padding:2px 6px;border-radius:4px;font-size:0.75rem;">REJECTED</span>`;
     }
 
-    const latLonText = (evt.latitude && evt.longitude)
-      ? `${evt.latitude.toFixed(4)}, ${evt.longitude.toFixed(4)}`
-      : 'No GPS';
+    const hasGps = evt.latitude !== null && evt.longitude !== null &&
+      Number.isFinite(parseFloat(evt.latitude)) && Number.isFinite(parseFloat(evt.longitude)) &&
+      (parseFloat(evt.latitude) !== 0 || parseFloat(evt.longitude) !== 0);
+
+    const latLonText = hasGps
+      ? `${parseFloat(evt.latitude).toFixed(5)}, ${parseFloat(evt.longitude).toFixed(5)}`
+      : '<span style="color: var(--text-muted); font-style: italic;">GPS unavailable</span>';
 
     const timeText = evt.created_at
       ? new Date(evt.created_at).toISOString().slice(0, 19).replace('T', ' ')
@@ -766,7 +721,7 @@ function renderEventsTable(events) {
       <td><span class="badge-dept">${evt.department || 'ROAD MAINTENANCE'}</span></td>
       <td>${reportBadgeHtml}</td>
       <td><span class="badge-status ${statClass}">${stat}</span></td>
-      <td><button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: var(--color-primary-border); color: var(--color-primary);">🔍 ${vStat === 'PENDING_REVIEW' ? 'Review' : 'View'}</button></td>
+      <td><button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: var(--color-primary-border); color: var(--color-primary);">🔍 View</button></td>
     `;
 
     tr.addEventListener('click', () => {
@@ -811,89 +766,27 @@ async function selectEventById(eventId, panMap = true) {
   detailPlaceholder.style.display = 'none';
   detailContent.style.display = 'flex';
 
+  // Responsive: on tablet/mobile screens, scroll down to details panel
+  if (window.innerWidth <= 1024 && adminDetailPanel) {
+    setTimeout(() => {
+      adminDetailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  }
+
   // Verification & Status States
-  const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+  const vStat = (evt.verification_status || 'ACCEPTED').toUpperCase();
   const isActive = evt.is_active !== false && vStat !== 'REJECTED';
-  const stat = (evt.status || 'NEW').toUpperCase();
+  const stat = (evt.status || 'ACCEPTED').toUpperCase();
 
   // Header status & verification badges
-  detailStatusBadge.textContent = stat;
-  detailStatusBadge.className = `badge badge-status status-${stat.toLowerCase()}`;
+  detailStatusBadge.textContent = 'ACCEPTED';
+  detailStatusBadge.className = 'badge badge-v-verified';
   if (detailStatusSelect) detailStatusSelect.value = stat;
 
   if (detailVerificationBadge) {
     detailVerificationBadge.style.display = 'inline-block';
-    if (vStat === 'VERIFIED') {
-      detailVerificationBadge.textContent = '✓ VERIFIED';
-      detailVerificationBadge.className = 'badge-v-verified';
-    } else if (vStat === 'REJECTED' || !isActive) {
-      detailVerificationBadge.textContent = '✕ REJECTED';
-      detailVerificationBadge.className = 'badge-v-rejected';
-    } else {
-      detailVerificationBadge.textContent = '⏳ PENDING REVIEW';
-      detailVerificationBadge.className = 'badge-v-pending';
-    }
-  }
-
-  // Candidate Evaluation Banner & Review Action Buttons
-  if (detailVerificationBanner) {
-    if (vStat === 'VERIFIED') {
-      detailVerificationBanner.className = 'verification-banner verified';
-      if (detailBannerTitle) detailBannerTitle.textContent = '✅ VERIFIED ROAD DEFECT';
-      if (detailBannerBadge) {
-        detailBannerBadge.textContent = '✓ VERIFIED';
-        detailBannerBadge.className = 'badge-v-verified';
-      }
-      if (detailBannerDesc) {
-        const byWho = evt.verified_by ? ` by supervisor ${evt.verified_by}` : '';
-        detailBannerDesc.textContent = `This detection candidate has been confirmed and verified${byWho}. It is authorized for department reporting.`;
-      }
-      if (verifyEventBtn) {
-        verifyEventBtn.disabled = true;
-        verifyEventBtn.innerHTML = '<span>✓</span><span>ALREADY VERIFIED</span>';
-      }
-      if (rejectEventBtn) {
-        rejectEventBtn.disabled = false;
-        rejectEventBtn.innerHTML = '<span>✕</span><span>REJECT / DISCARD</span>';
-      }
-    } else if (vStat === 'REJECTED' || !isActive) {
-      detailVerificationBanner.className = 'verification-banner rejected';
-      if (detailBannerTitle) detailBannerTitle.textContent = '❌ REJECTED DETECTION (FALSE POSITIVE)';
-      if (detailBannerBadge) {
-        detailBannerBadge.textContent = '✕ REJECTED';
-        detailBannerBadge.className = 'badge-v-rejected';
-      }
-      if (detailBannerDesc) {
-        const reason = evt.rejection_reason ? ` (Reason: ${evt.rejection_reason})` : '';
-        detailBannerDesc.textContent = `This candidate was rejected as a false positive${reason}. It is hidden from active maps and department reporting.`;
-      }
-      if (verifyEventBtn) {
-        verifyEventBtn.disabled = false;
-        verifyEventBtn.innerHTML = '<span>✓</span><span>RE-VERIFY DETECTION</span>';
-      }
-      if (rejectEventBtn) {
-        rejectEventBtn.disabled = true;
-        rejectEventBtn.innerHTML = '<span>✕</span><span>REJECTED</span>';
-      }
-    } else {
-      detailVerificationBanner.className = 'verification-banner pending';
-      if (detailBannerTitle) detailBannerTitle.textContent = '⚠️ AI DETECTION CANDIDATE';
-      if (detailBannerBadge) {
-        detailBannerBadge.textContent = '⏳ PENDING REVIEW';
-        detailBannerBadge.className = 'badge-v-pending';
-      }
-      if (detailBannerDesc) {
-        detailBannerDesc.textContent = 'Every AI detection is treated strictly as a candidate. A supervisor must evaluate and verify this problem before dispatching to city departments.';
-      }
-      if (verifyEventBtn) {
-        verifyEventBtn.disabled = false;
-        verifyEventBtn.innerHTML = '<span>✓</span><span>VERIFY DETECTION</span>';
-      }
-      if (rejectEventBtn) {
-        rejectEventBtn.disabled = false;
-        rejectEventBtn.innerHTML = '<span>✕</span><span>REJECT / FALSE POSITIVE</span>';
-      }
-    }
+    detailVerificationBadge.textContent = 'ACCEPTED';
+    detailVerificationBadge.className = 'badge-v-verified';
   }
 
   // Evidence Image
@@ -926,60 +819,34 @@ async function selectEventById(eventId, panMap = true) {
   detailPriorityBadge.textContent = `PRIORITY: ${prio}`;
   detailPriorityBadge.className = `badge badge-risk-${prio === 'HIGH' ? 'high' : 'medium'}`;
 
-  // Field Attributes (Preserves AI Confidence e.g. 91% and separates Verification Status & Method)
+  // Field Attributes (Preserves AI Confidence e.g. 91% and shows simple accepted status)
   detailEvtId.textContent = evt.event_id || '--';
   
   // Progress bar & clear confidence explanation
   const confVal = typeof evt.confidence === 'number' ? evt.confidence : parseFloat(evt.confidence || 0);
   const confPct = Math.round(confVal * 100);
-  if (confVal >= 0.90) {
-    detailConf.innerHTML = `
-      <div class="conf-indicator conf-high" title="AI Confidence: ${confPct}% (Auto-verified based on configured threshold ≥ 90%)">
-        <div class="conf-bar"><div class="conf-fill high" style="width: ${confPct}%"></div></div>
-        <span class="conf-text">🟢 ${confPct}% &bull; High Confidence</span>
-      </div>
-    `;
-  } else if (confVal >= 0.60) {
-    detailConf.innerHTML = `
-      <div class="conf-indicator conf-medium" title="AI Confidence: ${confPct}% (Supervisor review required: 60%–89.9%)">
-        <div class="conf-bar"><div class="conf-fill medium" style="width: ${confPct}%"></div></div>
-        <span class="conf-text">🟠 ${confPct}% &bull; Review Required</span>
-      </div>
-    `;
-  } else {
-    detailConf.innerHTML = `
-      <div class="conf-indicator conf-low" title="AI Confidence: ${confPct}% (Below 60% threshold — Auto-rejected)">
-        <div class="conf-bar"><div class="conf-fill low" style="width: ${confPct}%"></div></div>
-        <span class="conf-text">⚪ ${confPct}% &bull; Rejected</span>
-      </div>
-    `;
-  }
+  detailConf.innerHTML = `
+    <div class="conf-indicator conf-high" title="AI Confidence: ${confPct}% (Automatic Acceptance Threshold ≥ 80%)">
+      <div class="conf-bar"><div class="conf-fill high" style="width: ${confPct}%"></div></div>
+      <span class="conf-text">🟢 ${confPct}% &bull; Accepted Detection</span>
+    </div>
+  `;
 
   const detailVerifStatus = document.getElementById('detailVerifStatus');
   const detailVerifMethod = document.getElementById('detailVerifMethod');
-  const vMethod = evt.verification_method || (vStat === 'VERIFIED' ? (confVal >= 0.90 ? 'AUTO_VERIFIED' : 'HUMAN_VERIFIED') : 'HUMAN_REVIEW_REQUIRED');
   if (detailVerifStatus) {
-    detailVerifStatus.textContent = vStat;
-    detailVerifStatus.style.color = vStat === 'VERIFIED' ? '#15803D' : (vStat === 'REJECTED' ? '#64748B' : '#D97706');
+    detailVerifStatus.textContent = 'ACCEPTED';
+    detailVerifStatus.style.color = '#15803D';
   }
   if (detailVerifMethod) {
-    detailVerifMethod.textContent = vMethod;
-    detailVerifMethod.style.color = vMethod === 'AUTO_VERIFIED' || vMethod === 'HUMAN_VERIFIED' ? '#15803D' : '#D97706';
+    detailVerifMethod.textContent = 'AI_ACCEPTED';
+    detailVerifMethod.style.color = '#15803D';
   }
 
   detailProblem.textContent = evt.problem || evt.class_name || 'Pothole';
 
   // Audit explanation note
-  let auditNote = `${evt.observation_count || 1} frame(s)`;
-  if (vMethod === 'AUTO_VERIFIED') {
-    auditNote += ' &bull; Auto-verified based on configured confidence threshold (≥ 90%)';
-  } else if (vMethod === 'HUMAN_VERIFIED') {
-    auditNote += ` &bull; Human-verified by ${evt.verified_by || 'admin'}`;
-  } else if (vStat === 'PENDING_REVIEW') {
-    auditNote += ` &bull; Supervisor review required (${confPct}% confidence)`;
-  } else if (vStat === 'REJECTED') {
-    auditNote += ` &bull; Discarded (${evt.rejection_reason || 'Rejected by Admin'})`;
-  }
+  let auditNote = `${evt.observation_count || 1} frame(s) &bull; Automatically accepted via AI confidence threshold (${confPct}% ≥ 80%)`;
   detailObservations.innerHTML = auditNote;
 
   detailDepartment.textContent = evt.department || 'ROAD MAINTENANCE';
@@ -1000,7 +867,7 @@ async function selectEventById(eventId, panMap = true) {
     detailAddress.textContent = 'Address unavailable (No GPS)';
   }
 
-  // Department Dispatch Action Card UI State & Strict Verification Lock
+  // Department Dispatch Action Card UI State & Reporting Availability
   const repStatus = (evt.report_status || 'PENDING').toUpperCase();
   if (detailReportStatusBadge) {
     detailReportStatusBadge.textContent = repStatus;
@@ -1027,8 +894,8 @@ async function selectEventById(eventId, panMap = true) {
     reportFeedback.style.display = 'none';
   }
 
-  // LOCKED DEPARTMENT REPORTING:
-  // If not VERIFIED or is REJECTED, disable button and show lock notice
+  // DEPARTMENT REPORTING:
+  // Immediately eligible for reporting - no verification gate!
   if (repStatus === 'SENT') {
     if (reportLockNotice) reportLockNotice.style.display = 'none';
     if (sendReportBtn) {
@@ -1037,19 +904,8 @@ async function selectEventById(eventId, panMap = true) {
       sendReportBtn.style.cursor = 'not-allowed';
     }
     if (sendReportBtnText) sendReportBtnText.textContent = `✓ REPORT SENT (${evt.report_id || 'Submitted through prototype workflow'})`;
-  } else if (vStat !== 'VERIFIED' || !isActive) {
-    if (reportLockNotice) {
-      reportLockNotice.style.display = 'block';
-      reportLockNotice.innerHTML = `🔒 <strong>Dispatch Locked:</strong> Detection candidate status is <strong>${vStat}</strong>. Please evaluate and click <strong>[ VERIFY DETECTION ]</strong> above before viewing/sending report to ${evt.department || 'the department'}.`;
-    }
-    if (sendReportBtn) {
-      sendReportBtn.disabled = true;
-      sendReportBtn.style.opacity = '0.55';
-      sendReportBtn.style.cursor = 'not-allowed';
-    }
-    if (sendReportBtnText) sendReportBtnText.textContent = `🔒 Verification Required (${vStat})`;
   } else {
-    // Confirmed verified: Available for reporting
+    // Available for reporting immediately
     if (reportLockNotice) reportLockNotice.style.display = 'none';
     if (sendReportBtn) {
       sendReportBtn.disabled = false;
@@ -1061,115 +917,18 @@ async function selectEventById(eventId, panMap = true) {
 }
 
 // ==============================================================================
-// 7.1 VERIFICATION WORKFLOW ACTION HANDLERS
+// 7.1 VERIFICATION WORKFLOW ACTION HANDLERS (REMOVED - AUTO ACCEPTED)
 // ==============================================================================
 function setupVerificationButtons() {
-  if (verifyEventBtn) {
-    verifyEventBtn.addEventListener('click', handleVerifyCurrentEvent);
-  }
-  if (rejectEventBtn) {
-    rejectEventBtn.addEventListener('click', handleRejectCurrentEvent);
-  }
+  // Verification buttons removed - pothole detections are automatically accepted via confidence threshold >= 0.80
 }
 
-async function handleVerifyCurrentEvent() {
-  if (!selectedEventId) return;
-  const evt = allEventsCache.find(e => e.event_id === selectedEventId);
-  if (!evt) return;
-
-  try {
-    if (verifyEventBtn) {
-      verifyEventBtn.disabled = true;
-      verifyEventBtn.textContent = 'Verifying...';
-    }
-
-    const res = await fetch(`/api/admin/events/${selectedEventId}/verify`, {
-      method: 'PATCH',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' })
-    });
-
-    const data = await res.json();
-    if (res.ok && data.success) {
-      evt.verification_status = 'VERIFIED';
-      evt.is_active = true;
-      evt.verified_at = data.event ? data.event.verified_at : new Date().toISOString();
-      evt.verified_by = data.event ? data.event.verified_by : 'admin';
-
-      // Update in-place without page reload
-      renderEventsTable(allEventsCache);
-      updateSingleMapMarker(evt);
-      selectEventById(selectedEventId, false);
-      await fetchStats();
-    } else {
-      alert(data.error || 'Failed to verify detection candidate');
-      if (verifyEventBtn) verifyEventBtn.disabled = false;
-    }
-  } catch (err) {
-    console.error('[Admin] Verify error:', err);
-    if (verifyEventBtn) verifyEventBtn.disabled = false;
-  }
-}
-
-async function handleRejectCurrentEvent() {
-  if (!selectedEventId) return;
-  const evt = allEventsCache.find(e => e.event_id === selectedEventId);
-  if (!evt) return;
-
-  const reason = prompt('Specify rejection reason (e.g., False positive, shadow artifact, duplicate, harmless marking):', 'False positive');
-  if (reason === null) return; // Cancelled
-
-  try {
-    if (rejectEventBtn) {
-      rejectEventBtn.disabled = true;
-      rejectEventBtn.textContent = 'Rejecting...';
-    }
-
-    const res = await fetch(`/api/admin/events/${selectedEventId}/reject`, {
-      method: 'PATCH',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ reason: reason.trim() || 'False positive' })
-    });
-
-    const data = await res.json();
-    if (res.ok && data.success) {
-      evt.verification_status = 'REJECTED';
-      evt.is_active = false;
-      evt.rejected_at = data.event ? data.event.rejected_at : new Date().toISOString();
-      evt.rejected_by = data.event ? data.event.rejected_by : 'admin';
-      evt.rejection_reason = reason.trim() || 'False positive';
-
-      // Remove marker immediately from active map
-      const marker = mapMarkersMap.get(selectedEventId);
-      if (marker && leafletMap) {
-        leafletMap.removeLayer(marker);
-        mapMarkersMap.delete(selectedEventId);
-        if (mapEventCountBadge) {
-          mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
-        }
-      }
-
-      // If active filter excludes rejected, filter it out from display list
-      if (currentVerificationFilter !== 'all' && currentVerificationFilter !== 'REJECTED') {
-        allEventsCache = allEventsCache.filter(e => e.event_id !== selectedEventId);
-      }
-
-      renderEventsTable(allEventsCache);
-      selectEventById(selectedEventId, false);
-      await fetchStats();
-    } else {
-      alert(data.error || 'Failed to reject detection candidate');
-      if (rejectEventBtn) rejectEventBtn.disabled = false;
-    }
-  } catch (err) {
-    console.error('[Admin] Reject error:', err);
-    if (rejectEventBtn) rejectEventBtn.disabled = false;
-  }
-}
+async function handleVerifyCurrentEvent() {}
+async function handleRejectCurrentEvent() {}
 
 function updateSingleMapMarker(evt) {
   if (!leafletMap) return;
-  const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
-  if (evt.is_active === false || vStat === 'REJECTED') {
+  if (evt.is_active === false) {
     const existing = mapMarkersMap.get(evt.event_id);
     if (existing) {
       leafletMap.removeLayer(existing);
@@ -1182,83 +941,18 @@ function updateSingleMapMarker(evt) {
   }
 
   const existing = mapMarkersMap.get(evt.event_id);
-  const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, vStat);
+  const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, 'ACCEPTED');
   if (existing) {
     existing.setIcon(icon);
-  } else if (evt.latitude && evt.longitude) {
+  } else if (Number.isFinite(evt.latitude) && Number.isFinite(evt.longitude) && !(evt.latitude === 0 && evt.longitude === 0)) {
     renderMapMarkers(allEventsCache);
   }
 }
 
 // Make selectEventById globally callable from Leaflet popup buttons
 window.selectEventById = selectEventById;
-
-// Direct verification / rejection handlers triggered from Leaflet map popups
-window.directVerifyEvent = async function(eventId) {
-  try {
-    const res = await fetch(`/api/admin/events/${eventId}/verify`, {
-      method: 'PATCH',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' })
-    });
-    const data = await res.json();
-    if (data.success) {
-      const evt = allEventsCache.find(e => e.event_id === eventId);
-      if (evt) {
-        evt.verification_status = 'VERIFIED';
-        evt.verification_method = 'HUMAN_VERIFIED';
-        evt.is_active = true;
-        evt.verified_by = data.event?.verified_by || 'admin';
-        evt.verified_at = data.event?.verified_at || new Date().toISOString();
-        updateSingleMapMarker(evt);
-        renderEventsTable(allEventsCache);
-        if (selectedEventId === eventId) {
-          selectEventById(eventId, false);
-        }
-      }
-      await fetchStats();
-    } else {
-      alert(`Verification failed: ${data.error || 'Server error'}`);
-    }
-  } catch (err) {
-    console.error('directVerifyEvent error:', err);
-  }
-};
-
-window.directRejectEvent = async function(eventId) {
-  const reason = prompt('Please enter rejection reason (e.g. False positive, shadow, harmless crack):', 'False positive / Rejected by Admin');
-  if (reason === null) return; // User cancelled prompt
-
-  try {
-    const res = await fetch(`/api/admin/events/${eventId}/reject`, {
-      method: 'PATCH',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ reason })
-    });
-    const data = await res.json();
-    if (data.success) {
-      const evt = allEventsCache.find(e => e.event_id === eventId);
-      if (evt) {
-        evt.verification_status = 'REJECTED';
-        evt.verification_method = 'HUMAN_REJECTED';
-        evt.is_active = false;
-        evt.rejection_reason = reason;
-        updateSingleMapMarker(evt);
-        if (currentVerificationFilter !== 'all' && currentVerificationFilter !== 'REJECTED') {
-          allEventsCache = allEventsCache.filter(e => e.event_id !== eventId);
-        }
-        renderEventsTable(allEventsCache);
-        if (selectedEventId === eventId) {
-          selectEventById(eventId, false);
-        }
-      }
-      await fetchStats();
-    } else {
-      alert(`Rejection failed: ${data.error || 'Server error'}`);
-    }
-  } catch (err) {
-    console.error('directRejectEvent error:', err);
-  }
-};
+window.directVerifyEvent = async function() {};
+window.directRejectEvent = async function() {};
 
 async function resolveAddress(lat, lon) {
   const cacheKey = `${Number(lat).toFixed(4)},${Number(lon).toFixed(4)}`;
@@ -1343,6 +1037,55 @@ function setupSidebarNavigation() {
   }
 }
 
+function setupMobileSidebar() {
+  const sidebar = document.getElementById('adminSidebar');
+  const toggleBtn = document.getElementById('sidebarToggleBtn');
+  const backdrop = document.getElementById('sidebarBackdrop');
+
+  if (!sidebar) return;
+
+  function openSidebar() {
+    sidebar.classList.add('mobile-open');
+    if (backdrop) backdrop.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 300);
+  }
+
+  function closeSidebar() {
+    sidebar.classList.remove('mobile-open');
+    if (backdrop) backdrop.classList.remove('active');
+    document.body.style.overflow = '';
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 300);
+  }
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (sidebar.classList.contains('mobile-open')) {
+        closeSidebar();
+      } else {
+        openSidebar();
+      }
+    });
+  }
+
+  if (backdrop) {
+    backdrop.addEventListener('click', () => {
+      closeSidebar();
+    });
+  }
+
+  // Close sidebar on nav item click on small screens
+  const navBtns = sidebar.querySelectorAll('.sidebar-nav-btn');
+  navBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (window.innerWidth <= 1024) {
+        closeSidebar();
+      }
+    });
+  });
+}
+
 // ==============================================================================
 // 9. FILTER LISTENERS
 // ==============================================================================
@@ -1400,10 +1143,10 @@ function setupFilterListeners() {
       if (filterPrioritySelect) filterPrioritySelect.value = 'all';
       if (filterStatusSelect) filterStatusSelect.value = 'all';
       if (filterReportStatusSelect) filterReportStatusSelect.value = 'all';
-      currentVerificationFilter = 'PENDING_REVIEW';
+      currentVerificationFilter = 'all';
       if (verificationFilterGroup) {
         verificationFilterGroup.querySelectorAll('.vfilter-btn').forEach(b => {
-          b.classList.toggle('active', b.dataset.val === 'PENDING_REVIEW');
+          b.classList.toggle('active', b.dataset.val === 'all');
         });
       }
       fetchAndRenderEvents();
@@ -1452,9 +1195,8 @@ function setupFilterListeners() {
 function openReportPreviewModal(evt) {
   if (!evt) return;
 
-  const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
-  if (vStat !== 'VERIFIED' || evt.is_active === false) {
-    alert(`Cannot dispatch report: Detection candidate must be VERIFIED before reporting (current status: ${vStat}).`);
+  if (evt.is_active === false) {
+    alert('Cannot dispatch report: Detection candidate is inactive.');
     return;
   }
 
@@ -1470,7 +1212,7 @@ function openReportPreviewModal(evt) {
   if (reportPreviewSubject) reportPreviewSubject.textContent = `[${prio} PRIORITY] ${probName} Incident Report — ${evt.event_id}`;
   if (confirmModalEventId) confirmModalEventId.textContent = evt.event_id;
   if (confirmModalProblem) confirmModalProblem.textContent = `${probName} (${evt.category || 'Urban Infrastructure'})`;
-  if (confirmModalConf) confirmModalConf.textContent = `${confPct}% (Auto-verified based on configured confidence threshold)`;
+  if (confirmModalConf) confirmModalConf.textContent = `${confPct}% (Automatic Acceptance Threshold ≥ 80%)`;
   if (reportPreviewPriority) reportPreviewPriority.textContent = prio;
   if (reportPreviewTimestamp) reportPreviewTimestamp.textContent = dtStr;
   if (reportPreviewLocation) reportPreviewLocation.textContent = locStr;
@@ -1486,9 +1228,9 @@ function openReportPreviewModal(evt) {
 
   if (reportPreviewDesc) {
     if (destDept === 'TRAFFIC MANAGEMENT') {
-      reportPreviewDesc.textContent = `A traffic hazard / congestion anomaly (${probName}) was detected by the mobile urban intelligence system at ${locStr}. Verified for prompt traffic authority response.`;
+      reportPreviewDesc.textContent = `A traffic hazard / congestion anomaly (${probName}) was detected by the mobile urban intelligence system at ${locStr}. Auto-accepted for prompt traffic authority response.`;
     } else {
-      reportPreviewDesc.textContent = `A road surface defect (${probName}) was detected by the mobile urban intelligence system at ${locStr}. Verified by command portal review for municipal road maintenance inspection and repair.`;
+      reportPreviewDesc.textContent = `A road surface defect (${probName}) was detected by the mobile urban intelligence system at ${locStr}. Automatically accepted via AI confidence threshold for municipal road maintenance inspection and repair.`;
     }
   }
 
@@ -1633,10 +1375,14 @@ function setupSocketListeners() {
 
   // Dynamic ingestion of newly finalized edge events!
   socket.on('edge-event-detected', async (newEvent) => {
+    if (!hasAdminPortalRequirements(newEvent)) {
+      console.log('[Admin Portal] Real-time edge event skipped (lacks GPS or frame image):', newEvent?.event_id);
+      return;
+    }
     console.log('[Admin Portal] Real-time edge event detected:', newEvent.event_id);
     await fetchStats();
     await fetchAndRenderEvents();
-    if (newEvent.event_id) {
+    if (newEvent.event_id && allEventsCache.some(e => e.event_id === newEvent.event_id)) {
       selectEventById(newEvent.event_id, true);
     }
   });

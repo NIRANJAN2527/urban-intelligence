@@ -1,4 +1,4 @@
-# DRISHTIYANA - Mobile Sensing & Edge Monitoring System (SIH 2026)
+﻿# DRISHTIYANA - Mobile Sensing & Edge Monitoring System (SIH 2026)
 
 ## Features & Modes:
 - **Mode 1 (LIVE BUS SENSOR)**: Real-time phone camera streaming via WebRTC, continuous mobile GPS tracking (`watchPosition`), synchronized UTC ISO-8601 timestamps, live Leaflet GIS map tracking, and Supabase cloud persistence.
@@ -157,11 +157,31 @@ Open in your laptop browser:
 
 1. On laptop (`http://localhost:3000/viewer`), click **`[ 📁 UPLOAD FILES ]`**.
 2. **Choose Video File**: Select any `.mp4`, `.avi`, `.mov`, or `.webm` video file.
-3. **Choose GPS File**: Select `drishtiyana/sample_data/pothole_test_01.json` or `drishtiyana/sample_data/pothole_test_01.csv`.
-4. The status will update to **`Status: READY FOR PROCESSING`**.
-5. Click **"UPLOAD & START PROCESSING"**.
-6. Watch the progress bar advance through upload, validation, and Supabase storage.
-7. Once loaded, the playback dashboard appears:
+---
+
+## 🔒 Security Setup (HTTPS Certificates)
+
+This project uses **mkcert** to generate locally trusted HTTPS certificates.
+
+### First-Time Setup (Run Once)
+
+```powershell
+# Install mkcert root CA into Windows trust store
+mkcert -install
+
+# Generate certificates for localhost
+cd server
+mkcert -key-file certs\key.pem -cert-file certs\cert.pem localhost 127.0.0.1 ::1
+```
+
+### For Mobile Devices
+Download and install the CA certificate from: `http://<YOUR_IP>:3000/ca.crt`
+
+1. **Choose GPS File**: Select `drishtiyana/sample_data/pothole_test_01.json` or `drishtiyana/sample_data/pothole_test_01.csv`.
+2. The status will update to **`Status: READY FOR PROCESSING`**.
+3. Click **"UPLOAD & START PROCESSING"**.
+4. Watch the progress bar advance through upload, validation, and Supabase storage.
+5. Once loaded, the playback dashboard appears:
    - Play or scrub the video timeline.
    - Observe **`VIDEO TIME`** and **`GPS TIME`** updating in sync.
    - The bus marker moves along the route on the Leaflet GIS map synchronously with the video playback!

@@ -320,7 +320,35 @@ class RedisCandidateManager:
                 best_match_candidate["best_video_timestamp"] = video_timestamp
                 best_match_candidate["best_processing_timestamp"] = processing_timestamp
                 best_match_candidate["best_bbox"] = new_bbox
-                best_match_candidate["gps"] = gps_match
+
+                # GPS stored with the best evidence must correspond to that frame's detection timestamp
+                new_gps = gps_match or {}
+                has_new_valid_gps = (
+                    new_gps.get("latitude") is not None and
+                    new_gps.get("longitude") is not None and
+                    new_gps.get("gps_match_status") == "GPS MATCHED"
+                )
+
+                if has_new_valid_gps:
+                    best_match_candidate["gps"] = new_gps
+                else:
+                    old_gps = best_match_candidate.get("gps") or {}
+                    has_old_valid_gps = (
+                        old_gps.get("latitude") is not None and
+                        old_gps.get("longitude") is not None and
+                        old_gps.get("gps_match_status") == "GPS MATCHED"
+                    )
+                    if has_old_valid_gps:
+                        best_match_candidate["gps"] = old_gps
+                    else:
+                        best_match_candidate["gps"] = new_gps if new_gps else {
+                            "latitude": None,
+                            "longitude": None,
+                            "gps_timestamp": None,
+                            "accuracy": None,
+                            "timestamp_difference_ms": None,
+                            "gps_match_status": "GPS_UNAVAILABLE"
+                        }
 
                 # Overwrite best evidence frame image
                 frame_path = best_match_candidate.get("best_frame_path")
@@ -335,6 +363,13 @@ class RedisCandidateManager:
 
                 print(f"[REDIS] Best confidence updated: {new_conf:.2f}")
             else:
+                # If candidate currently has no GPS, but this observation frame has valid GPS, attach it
+                old_gps = best_match_candidate.get("gps") or {}
+                new_gps = gps_match or {}
+                if (old_gps.get("latitude") is None) and (new_gps.get("latitude") is not None and new_gps.get("gps_match_status") == "GPS MATCHED"):
+                    best_match_candidate["gps"] = new_gps
+                    print(f"[REDIS] Attached valid GPS to candidate {cand_id}: ({new_gps['latitude']}, {new_gps['longitude']})")
+
                 print(f"[REDIS] Retained best confidence: {old_best_conf:.2f} (observations={best_match_candidate['observation_count']})")
 
             self._store_candidate(best_match_candidate)

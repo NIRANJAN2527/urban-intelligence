@@ -46,6 +46,7 @@ let currentSessionId = null;
 let videoStartedAt = null;
 let geolocationWatchId = null;
 let videoTimerInterval = null;
+let iceCandidateQueue = [];
 
 // Generate unique session ID (e.g. SESSION-20260908-153012-101)
 function generateSessionId() {
@@ -55,7 +56,15 @@ function generateSessionId() {
   return `SESSION-${dateStr}-${rand}`;
 }
 
-let iceCandidateQueue = [];
+// Check for secure context on page load (Mobile browsers require HTTPS for getUserMedia & Geolocation)
+function checkSecureContext() {
+  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    showAlert(
+      `⚠️ HTTPS Required: Mobile camera and GPS require a secure connection. Please open: https://${location.hostname}:3001/mobile`,
+      'warning'
+    );
+  }
+}
 
 // 1. Initialize Signaling via Socket.IO
 function initSocket() {
@@ -67,7 +76,11 @@ function initSocket() {
   socket.on('connect', () => {
     console.log('[Socket] Connected to server ID:', socket.id);
     updateServerStatus(true, 'CONNECTED');
-    hideAlert();
+    if (window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      hideAlert();
+    } else {
+      checkSecureContext();
+    }
 
     // Join room as sender (Bus Sensing Unit)
     socket.emit('join-room', { roomId: BUS_ID, role: 'sender' });
@@ -90,6 +103,7 @@ function initSocket() {
     console.log(`[Room] Peer joined with role: ${role}`);
     if (role === 'viewer' && isSensingActive && localStream) {
       console.log('[WebRTC] Viewer joined, initiating WebRTC offer...');
+      socket.emit('camera-status', { roomId: BUS_ID, status: 'LIVE' });
       createPeerConnectionAndOffer();
     }
   });
@@ -139,28 +153,34 @@ function initSocket() {
 
 // 2. Camera Access using getUserMedia()
 async function startCamera() {
-  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-    showAlert(
-      '⚠️ Mobile camera & GPS require a trusted HTTPS connection! If needed, install the local CA certificate from http://' + location.hostname + ':3000/ca.crt to ensure trusted access.',
-      'warning'
-    );
-  }
-
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showAlert('Camera API (getUserMedia) is not supported or is blocked in this browser context.', 'danger');
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      showAlert(
+        `⚠️ Mobile camera requires HTTPS! Please open: https://${location.hostname}:3001/mobile`,
+        'danger'
+      );
+    } else {
+      showAlert('Camera API (getUserMedia) is not supported or is blocked in this browser context.', 'danger');
+    }
     return false;
   }
 
-  try {
-    const constraints = {
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    };
+  // Release any active stream before starting a new one
+  if (localStream) {
+    localStream.getTracks().forEach((track) => track.stop());
+    localStream = null;
+  }
 
+  const constraints = {
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    },
+    audio: false
+  };
+
+  try {
     try {
       localStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (firstErr) {
@@ -258,6 +278,8 @@ function startGpsTracking() {
 
   geolocationWatchId = navigator.geolocation.watchPosition(
     async (position) => {
+      if (!isSensingActive || !currentSessionId) return;
+
       const coords = position.coords;
       const readingTimestamp = new Date(position.timestamp || Date.now()).toISOString();
 
@@ -266,17 +288,17 @@ function startGpsTracking() {
         session_id: currentSessionId,
         latitude: coords.latitude,
         longitude: coords.longitude,
-        accuracy: coords.accuracy !== null ? coords.accuracy : null,
-        speed: coords.speed !== null ? coords.speed : null,
-        heading: coords.heading !== null ? coords.heading : null,
+        accuracy: coords.accuracy !== null && !isNaN(coords.accuracy) ? Number(coords.accuracy) : null,
+        speed: coords.speed !== null && !isNaN(coords.speed) ? Number(coords.speed) : null,
+        heading: coords.heading !== null && !isNaN(coords.heading) ? Number(coords.heading) : null,
         gps_timestamp: readingTimestamp
       };
 
       // Update UI with real-time values
       latVal.textContent = coords.latitude.toFixed(6);
       lonVal.textContent = coords.longitude.toFixed(6);
-      accVal.textContent = coords.accuracy ? `${coords.accuracy.toFixed(1)}m` : 'N/A';
-      speedVal.textContent = coords.speed !== null ? `${(coords.speed * 3.6).toFixed(1)} km/h` : '0.0 km/h';
+      accVal.textContent = coords.accuracy !== null && !isNaN(coords.accuracy) ? `${coords.accuracy.toFixed(1)}m` : 'N/A';
+      speedVal.textContent = coords.speed !== null && !isNaN(coords.speed) ? `${(coords.speed * 3.6).toFixed(1)} km/h` : '0.0 km/h';
 
       // Format GPS time (HH:MM:SS UTC)
       const gpsDate = new Date(readingTimestamp);
@@ -293,8 +315,8 @@ function startGpsTracking() {
         });
 
         if (!response.ok) {
-          const errData = await response.json();
-          console.warn('[GPS API] Location rejected by server:', errData.error);
+          const errData = await response.json().catch(() => ({}));
+          console.warn('[GPS API] Location rejected by server:', errData.error || response.statusText);
         }
       } catch (fetchErr) {
         console.warn('[GPS API] Failed to send location to server:', fetchErr.message);
@@ -304,7 +326,11 @@ function startGpsTracking() {
       console.warn('[GPS Error]', error);
       if (error.code === 1) { // PERMISSION_DENIED
         updateGpsStatus('denied', 'PERMISSION DENIED');
-        showAlert('Location permission denied. Please allow location permissions in your browser.', 'danger');
+        if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+          showAlert(`Location blocked: Mobile GPS requires HTTPS. Please open: https://${location.hostname}:3001/mobile`, 'danger');
+        } else {
+          showAlert('Location permission denied. Please allow location permissions in your browser.', 'danger');
+        }
       } else if (error.code === 2) { // POSITION_UNAVAILABLE
         updateGpsStatus('unavailable', 'SIGNAL UNAVAILABLE');
       } else if (error.code === 3) { // TIMEOUT
@@ -377,7 +403,7 @@ async function startBusSensor() {
         bus_id: BUS_ID,
         video_started_at: videoStartedAt
       })
-    }).catch(e => console.warn('[Session Start API]', e));
+    }).catch((e) => console.warn('[Session Start API]', e));
   } catch (e) {
     console.warn('[Session Start Error]', e);
   }
@@ -401,7 +427,7 @@ async function stopBusSensor() {
 
   // 3. Stop Camera & WebRTC
   if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
+    localStream.getTracks().forEach((track) => track.stop());
     localStream = null;
   }
 
@@ -426,7 +452,7 @@ async function stopBusSensor() {
           session_id: currentSessionId,
           bus_id: BUS_ID
         })
-      }).catch(e => console.warn('[Session End API]', e));
+      }).catch((e) => console.warn('[Session End API]', e));
     } catch (e) {
       console.warn('[Session End Error]', e);
     }
@@ -498,5 +524,21 @@ startBtn.addEventListener('click', () => {
   }
 });
 
-// Start Socket connection on load
+// Clean unload handler
+window.addEventListener('beforeunload', () => {
+  if (isSensingActive) {
+    if (currentSessionId && navigator.sendBeacon) {
+      navigator.sendBeacon(
+        '/api/session/end',
+        new Blob([JSON.stringify({ session_id: currentSessionId, bus_id: BUS_ID })], { type: 'application/json' })
+      );
+    }
+    if (socket && socket.connected) {
+      socket.emit('camera-status', { roomId: BUS_ID, status: 'OFFLINE' });
+    }
+  }
+});
+
+// Check context and start Socket connection on load
+checkSecureContext();
 initSocket();

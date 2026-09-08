@@ -130,6 +130,27 @@ class TestVideoTimestampSync(unittest.TestCase):
 
         print(f"[Test 4 PASSED] Nearest GPS Match: {gps_match['latitude']}, {gps_match['longitude']} (delta={gps_match['timestamp_difference_ms']}ms)")
 
+    def test_04b_unavailable_gps_never_fabricates_coordinates(self):
+        """Invalid or distant GPS records must produce an unavailable location."""
+        frame_time = parse_timestamp_to_ms("2026-09-08T10:30:10.000Z")
+        invalid_match = get_gps_for_video_timestamp(frame_time, [{
+            "gps_timestamp": "2026-09-08T10:30:10.000Z",
+            "latitude": None,
+            "longitude": None
+        }])
+        self.assertIsNone(invalid_match["latitude"])
+        self.assertIsNone(invalid_match["longitude"])
+        self.assertEqual(invalid_match["gps_match_status"], "GPS_UNAVAILABLE")
+
+        distant_match = get_gps_for_video_timestamp(frame_time, [{
+            "gps_timestamp": "2026-09-08T10:30:00.000Z",
+            "latitude": 17.385044,
+            "longitude": 78.486671
+        }])
+        self.assertIsNone(distant_match["latitude"])
+        self.assertIsNone(distant_match["longitude"])
+        self.assertEqual(distant_match["gps_match_status"], "NO_CLOSE_MATCH")
+
     def test_05_redis_candidate_tracking_with_synchronized_timestamps(self):
         """
         STEPS 6 & 7: Verify Redis Candidate Manager retains highest confidence observation

@@ -1418,6 +1418,18 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
       };
     });
 
+    // Admin Portal Requirement: Events without valid GPS and frame image must not be in the Admin Portal
+    enriched = enriched.filter(e => {
+      const lat = parseFloat(e.latitude);
+      const lon = parseFloat(e.longitude);
+      const hasValidGps = Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0);
+      const img = e.evidence_image_url;
+      const hasValidFrameImage = typeof img === 'string' && img.trim().length > 0 &&
+                                 img.trim().toLowerCase() !== 'null' && img.trim().toLowerCase() !== 'undefined' &&
+                                 img.trim().toLowerCase() !== 'n/a' && img.trim().toLowerCase() !== 'none';
+      return hasValidGps && hasValidFrameImage;
+    });
+
     // Verification / acceptance status filter
     if (verification_status && verification_status !== 'all') {
       enriched = enriched.filter(e => (e.verification_status || 'ACCEPTED').toUpperCase() === verification_status.toUpperCase());
@@ -1489,6 +1501,18 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
         allEvents.push(memEvt);
       }
     }
+
+    // Admin Portal Requirement: Events without valid GPS and frame image must not appear in Admin Portal statistics
+    allEvents = allEvents.filter(evt => {
+      const rawLat = evt.latitude !== undefined && evt.latitude !== null ? parseFloat(evt.latitude) : NaN;
+      const rawLon = evt.longitude !== undefined && evt.longitude !== null ? parseFloat(evt.longitude) : NaN;
+      const hasValidGps = Number.isFinite(rawLat) && Number.isFinite(rawLon) && (rawLat !== 0 || rawLon !== 0);
+      const img = evt.evidence_image_url || evt.image_url || evt.evidence_url || evt.frame_image || evt.evidence_image;
+      const hasValidFrameImage = typeof img === 'string' && img.trim().length > 0 &&
+                                 img.trim().toLowerCase() !== 'null' && img.trim().toLowerCase() !== 'undefined' &&
+                                 img.trim().toLowerCase() !== 'n/a' && img.trim().toLowerCase() !== 'none';
+      return hasValidGps && hasValidFrameImage;
+    });
 
     const total = allEvents.length;
     let newEvents = 0;
