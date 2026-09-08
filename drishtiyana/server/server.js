@@ -24,6 +24,12 @@ const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'DrishtiAdmin@2026';
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || 'drishtiyana_secure_admin_jwt_secret_2026';
 
+// Configurable Citizen Credentials (from .env)
+const CITIZEN_LOGIN_ID = process.env.CITIZEN_USERNAME || 'citizen';
+const CITIZEN_PASSWORD = process.env.CITIZEN_PASSWORD || 'CitizenAccess@2026';
+const CITIZEN_SESSION_SECRET = process.env.CITIZEN_SESSION_SECRET || 'drishtiyana_secure_citizen_jwt_secret_2026';
+const SEARCH_RADIUS_KM = parseFloat(process.env.CITIZEN_SEARCH_RADIUS_KM || '2.0');
+
 // Body parsers
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -161,28 +167,37 @@ app.get('/api/ca/info', (req, res) => {
 // AUTHENTICATION & SESSION MANAGEMENT
 // ==============================================================================
 
-function generateSessionToken(username) {
+function generateSessionToken(username, role = 'admin') {
   const payload = JSON.stringify({
     username,
+    role,
     exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours validity
   });
   const b64Payload = Buffer.from(payload).toString('base64url');
-  const signature = crypto.createHmac('sha256', ADMIN_SESSION_SECRET).update(b64Payload).digest('base64url');
+  const secret = role === 'citizen' ? CITIZEN_SESSION_SECRET : ADMIN_SESSION_SECRET;
+  const signature = crypto.createHmac('sha256', secret).update(b64Payload).digest('base64url');
   return `${b64Payload}.${signature}`;
 }
 
-function verifySessionToken(token) {
+function verifySessionToken(token, expectedRole = null) {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [b64Payload, signature] = parts;
-  const expectedSig = crypto.createHmac('sha256', ADMIN_SESSION_SECRET).update(b64Payload).digest('base64url');
-  if (signature !== expectedSig) return null;
 
   try {
     const payloadStr = Buffer.from(b64Payload, 'base64url').toString('utf8');
     const payload = JSON.parse(payloadStr);
     if (!payload.exp || Date.now() > payload.exp) return null;
+
+    const role = payload.role || 'admin';
+    if (expectedRole && role !== expectedRole && role !== 'admin') {
+      return null;
+    }
+    const secret = role === 'citizen' ? CITIZEN_SESSION_SECRET : ADMIN_SESSION_SECRET;
+    const expectedSig = crypto.createHmac('sha256', secret).update(b64Payload).digest('base64url');
+    if (signature !== expectedSig) return null;
+
     return payload;
   } catch (_) {
     return null;
@@ -209,7 +224,7 @@ function requireAdminAuth(req, res, next) {
     token = authHeader.slice(7).trim();
   } else {
     const cookies = parseCookies(req);
-    token = cookies.drishtiyana_admin_token;
+    token = cookies.drishtiyana_admin_token || cookies.drishtiyana_citizen_token;
   }
 
   const session = verifySessionToken(token);
@@ -220,8 +235,83 @@ function requireAdminAuth(req, res, next) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Admin authentication required' });
   }
 
+  // Citizens are strictly forbidden from accessing Admin routes/APIs
+  if (session.role !== 'admin') {
+    if (req.accepts('html') && !req.path.startsWith('/api/')) {
+      return res.redirect('/login');
+    }
+    return res.status(403).json({ success: false, error: 'Forbidden: Admin access privilege required' });
+  }
+
   req.adminUser = session;
   next();
+}
+
+function requireCitizenAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else {
+    const cookies = parseCookies(req);
+    token = cookies.drishtiyana_citizen_token || cookies.drishtiyana_admin_token;
+  }
+
+  const session = verifySessionToken(token);
+  if (!session) {
+    if (req.accepts('html') && !req.path.startsWith('/api/')) {
+      return res.redirect('/citizen-login');
+    }
+    return res.status(401).json({ success: false, error: 'Unauthorized: Citizen authentication required' });
+  }
+
+  req.citizenUser = session;
+  next();
+}
+
+// ==============================================================================
+// BUS ROUTES & CITIZEN PROXIMITY REGISTRY (STRICT ACTIVE SOURCE VALIDATION)
+// ==============================================================================
+// Prototype Constants: Fixed Route for Mobile and Uploaded Buses
+const PROTOTYPE_MOBILE_BUS = {
+  bus_id: 'BUS-001',
+  source: 'CBIT',
+  destination: 'Secunderabad',
+  route_name: 'CBIT - Secunderabad Express'
+};
+
+const PROTOTYPE_UPLOAD_BUS = {
+  bus_id: 'BUS-UPLOAD-001',
+  source: 'CBIT',
+  destination: 'Secunderabad',
+  route_name: 'CBIT - Secunderabad Upload'
+};
+
+// Stale timeout: If no GPS update received within 30 seconds, bus is INACTIVE and disappears
+const MOBILE_GPS_STALE_TIMEOUT_MS = 30000;
+
+const busRoutes = new Map([
+  ['BUS-001', { id: 'route-001', bus_id: 'BUS-001', source: 'CBIT', destination: 'Secunderabad', active: true }],
+  ['BUS-101', { id: 'route-101', bus_id: 'BUS-101', source: 'CBIT', destination: 'Secunderabad', active: true }],
+  ['BUS-002', { id: 'route-002', bus_id: 'BUS-002', source: 'Miyapur', destination: 'Kukatpally', active: true }],
+  ['BUS-003', { id: 'route-003', bus_id: 'BUS-003', source: 'Ameerpet', destination: 'LB Nagar', active: true }],
+  ['BUS-UPLOAD-001', { id: 'route-upload-001', bus_id: 'BUS-UPLOAD-001', source: 'CBIT', destination: 'Secunderabad', active: true }]
+]);
+
+// Map<bus_id, { bus_id, session_id, latitude, longitude, accuracy, speed, heading, timestamp, updated_at, source_type }>
+// CRITICAL RULE: Configured buses are NOT active buses. ONLY populated when active GPS is transmitted!
+const latestBusLocations = new Map();
+
+function calculateHaversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return parseFloat((R * c).toFixed(2));
 }
 
 // ==============================================================================
@@ -250,6 +340,15 @@ app.get('/admin', requireAdminAuth, (req, res) => {
 
 app.get('/command', requireAdminAuth, (req, res) => {
   res.sendFile(path.join(publicDir, 'admin.html'));
+});
+
+// Standalone Citizen Portal routes
+app.get('/citizen-login', (req, res) => {
+  res.sendFile(path.join(publicDir, 'citizen-login.html'));
+});
+
+app.get('/citizen', requireCitizenAuth, (req, res) => {
+  res.sendFile(path.join(publicDir, 'citizen.html'));
 });
 
 // ==============================================================================
@@ -282,10 +381,230 @@ app.get('/api/auth/check', (req, res) => {
     : cookies.drishtiyana_admin_token;
 
   const session = verifySessionToken(token);
-  if (session) {
-    return res.json({ authenticated: true, user: { username: session.username } });
+  if (session && session.role === 'admin') {
+    return res.json({ authenticated: true, user: { username: session.username, role: 'admin' } });
   }
   return res.json({ authenticated: false });
+});
+
+// ==============================================================================
+// CITIZEN AUTHENTICATION & PROXIMITY APIS (COMPLETELY SEPARATE)
+// ==============================================================================
+app.post('/api/citizen/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (username === CITIZEN_LOGIN_ID && password === CITIZEN_PASSWORD) {
+    const token = generateSessionToken(username, 'citizen');
+    res.setHeader('Set-Cookie', `drishtiyana_citizen_token=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400`);
+    return res.json({
+      success: true,
+      token,
+      user: { username, role: 'citizen' }
+    });
+  }
+  return res.status(401).json({ success: false, error: 'Invalid citizen username or password' });
+});
+
+app.post('/api/citizen/logout', (req, res) => {
+  res.setHeader('Set-Cookie', `drishtiyana_citizen_token=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  return res.json({ success: true, message: 'Logged out successfully' });
+});
+
+app.get('/api/citizen/check', (req, res) => {
+  const cookies = parseCookies(req);
+  const authHeader = req.headers.authorization;
+  const token = (authHeader && authHeader.startsWith('Bearer '))
+    ? authHeader.slice(7).trim()
+    : cookies.drishtiyana_citizen_token;
+
+  const session = verifySessionToken(token);
+  if (session && (session.role === 'citizen' || session.role === 'admin')) {
+    return res.json({ authenticated: true, user: { username: session.username, role: session.role } });
+  }
+  return res.json({ authenticated: false });
+});
+
+// GET /api/citizen/nearby-buses: Find buses strictly within 2 KM of citizen coordinates
+// CRITICAL RULE: Shows buses ONLY if mobile live GPS is actively transmitting OR uploaded session is actively processing
+app.get('/api/citizen/nearby-buses', requireCitizenAuth, (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+
+  if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 || (lat === 0 && lon === 0)) {
+    return res.status(400).json({ success: false, error: 'Invalid citizen coordinates. Must provide valid latitude and longitude' });
+  }
+
+  const nearbyBuses = [];
+  const now = Date.now();
+
+  // Iterate strictly over active telemetry sources in latestBusLocations
+  for (const [key, loc] of latestBusLocations.entries()) {
+    if (!loc || loc.latitude === null || loc.longitude === null || isNaN(loc.latitude) || isNaN(loc.longitude) || (loc.latitude === 0 && loc.longitude === 0)) {
+      continue;
+    }
+
+    const updatedTime = loc.updated_at || loc.updatedAt || 0;
+    const elapsedMs = now - updatedTime;
+
+    // SOURCE A: Mobile Live GPS
+    if (loc.source_type === 'LIVE') {
+      // Discard if stale (GPS stopped > 30 seconds ago) -> Inactive bus disappears!
+      if (elapsedMs > MOBILE_GPS_STALE_TIMEOUT_MS) {
+        continue;
+      }
+    } else if (loc.source_type === 'UPLOAD_PROCESSING') {
+      // SOURCE B: Uploaded Processing
+      const job = videoJobProgress.get(loc.session_id);
+      // Only active if job exists and status is PROCESSING or PROCESSING_STARTED
+      if (!job || (job.status !== 'PROCESSING' && job.status !== 'PROCESSING_STARTED' && job.status !== 'STARTING')) {
+        continue;
+      }
+      if (elapsedMs > 60000) {
+        continue;
+      }
+    } else {
+      // Unknown or non-active source -> Discard!
+      continue;
+    }
+
+    // Backend strictly enforces the 2 KM radius restriction
+    const distanceKm = calculateHaversineDistanceKm(lat, lon, loc.latitude, loc.longitude);
+    if (distanceKm <= SEARCH_RADIUS_KM) {
+      const secondsAgo = Math.max(0, Math.floor(elapsedMs / 1000));
+      const busId = loc.bus_id || PROTOTYPE_MOBILE_BUS.bus_id;
+      const source = loc.source || PROTOTYPE_MOBILE_BUS.source;
+      const destination = loc.destination || PROTOTYPE_MOBILE_BUS.destination;
+      const routeName = loc.route_name || PROTOTYPE_MOBILE_BUS.route_name;
+
+      nearbyBuses.push({
+        bus_id: busId,
+        busId: busId,
+        source: source,
+        destination: destination,
+        route_name: routeName,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        speed: loc.speed !== undefined && loc.speed !== null ? Number(loc.speed) : null,
+        heading: loc.heading !== undefined && loc.heading !== null ? Number(loc.heading) : null,
+        distance_km: distanceKm,
+        distanceKm: distanceKm,
+        distance_m: Math.round(distanceKm * 1000),
+        status: 'LIVE',
+        source_type: loc.source_type,
+        seconds_ago: secondsAgo,
+        gps_timestamp: loc.gps_timestamp || new Date(updatedTime).toISOString(),
+        lastUpdated: new Date(updatedTime).toISOString()
+      });
+    }
+  }
+
+  // Sort by distance ascending (closest bus first)
+  nearbyBuses.sort((a, b) => a.distanceKm - b.distanceKm);
+
+  return res.json({
+    success: true,
+    radiusKm: SEARCH_RADIUS_KM,
+    radius_km: SEARCH_RADIUS_KM,
+    citizenLocation: { latitude: lat, longitude: lon, lat, lon },
+    citizen_location: { latitude: lat, longitude: lon, lat, lon },
+    count: nearbyBuses.length,
+    buses: nearbyBuses
+  });
+});
+
+// GET /api/citizen/bus/:busId/location: Get live/uploaded location for a specific bus
+app.get('/api/citizen/bus/:busId/location', requireCitizenAuth, (req, res) => {
+  const { busId } = req.params;
+  const loc = latestBusLocations.get(busId) || latestBusLocations.get(`UPLOAD_${busId}`);
+  const now = Date.now();
+
+  const isLocActive = loc && (
+    (loc.source_type === 'LIVE' && (now - (loc.updated_at || 0)) <= MOBILE_GPS_STALE_TIMEOUT_MS) ||
+    (loc.source_type === 'UPLOAD_PROCESSING' && videoJobProgress.get(loc.session_id)?.status === 'PROCESSING')
+  );
+
+  if (!loc || !isLocActive || loc.latitude === null || loc.longitude === null || isNaN(loc.latitude) || isNaN(loc.longitude) || (loc.latitude === 0 && loc.longitude === 0)) {
+    const emptyBus = {
+      bus_id: busId,
+      busId: busId,
+      source: 'CBIT',
+      destination: 'Secunderabad',
+      route_name: 'CBIT - Secunderabad',
+      latitude: null,
+      longitude: null,
+      distance_km: null,
+      distanceKm: null,
+      timestamp: null,
+      status: 'GPS_UNAVAILABLE'
+    };
+    return res.json({
+      success: true,
+      bus: emptyBus,
+      ...emptyBus
+    });
+  }
+
+  const updatedTime = loc.updated_at || loc.updatedAt || Date.now();
+  const secondsAgo = Math.max(0, Math.floor((now - updatedTime) / 1000));
+  let distanceKm = null;
+
+  if (req.query.lat && req.query.lon) {
+    const userLat = parseFloat(req.query.lat);
+    const userLon = parseFloat(req.query.lon);
+    if (!isNaN(userLat) && !isNaN(userLon)) {
+      distanceKm = calculateHaversineDistanceKm(userLat, userLon, loc.latitude, loc.longitude);
+    }
+  }
+
+  const busPayload = {
+    bus_id: loc.bus_id || busId,
+    busId: loc.bus_id || busId,
+    source: loc.source || 'CBIT',
+    destination: loc.destination || 'Secunderabad',
+    route_name: loc.route_name || 'CBIT - Secunderabad',
+    latitude: loc.latitude,
+    longitude: loc.longitude,
+    speed: loc.speed !== undefined && loc.speed !== null ? Number(loc.speed) : null,
+    heading: loc.heading !== undefined && loc.heading !== null ? Number(loc.heading) : null,
+    distance_km: distanceKm,
+    distanceKm: distanceKm,
+    distance_m: distanceKm !== null ? Math.round(distanceKm * 1000) : null,
+    status: 'LIVE',
+    source_type: loc.source_type,
+    seconds_ago: secondsAgo,
+    gps_timestamp: loc.gps_timestamp || new Date(updatedTime).toISOString(),
+    lastUpdated: new Date(updatedTime).toISOString(),
+    timestamp: loc.gps_timestamp || new Date(updatedTime).toISOString()
+  };
+
+  return res.json({
+    success: true,
+    bus: busPayload,
+    ...busPayload
+  });
+});
+
+// Admin Configuration: List & Configure bus routes
+app.get('/api/admin/routes', requireAdminAuth, (req, res) => {
+  const routes = Array.from(busRoutes.values());
+  return res.json({ success: true, count: routes.length, routes });
+});
+
+app.post('/api/admin/routes', requireAdminAuth, (req, res) => {
+  const { bus_id, source, destination, active } = req.body || {};
+  if (!bus_id || !source || !destination) {
+    return res.status(400).json({ success: false, error: 'Missing required fields: bus_id, source, destination' });
+  }
+  const cleanId = String(bus_id).trim().toUpperCase();
+  const route = {
+    id: `route-${cleanId.toLowerCase()}`,
+    bus_id: cleanId,
+    source: String(source).trim(),
+    destination: String(destination).trim(),
+    active: active !== undefined ? Boolean(active) : true,
+    updated_at: new Date().toISOString()
+  };
+  busRoutes.set(cleanId, route);
+  return res.json({ success: true, route });
 });
 
 // Configure Multer for File Uploads
@@ -627,6 +946,27 @@ app.post('/api/process-session/:sessionId', async (req, res) => {
   videoJobProgress.set(sessionId, initialProgress);
   io.emit('video-processing-progress', initialProgress);
 
+  // Register actively processing uploaded session bus for Citizen Portal (SOURCE B)
+  if (gpsRecords && gpsRecords.length > 0) {
+    const firstGps = gpsRecords[0];
+    const uploadBusPayload = {
+      bus_id: PROTOTYPE_UPLOAD_BUS.bus_id,
+      session_id: sessionId,
+      source_type: 'UPLOAD_PROCESSING',
+      latitude: Number(firstGps.latitude),
+      longitude: Number(firstGps.longitude),
+      speed: firstGps.speed !== undefined && firstGps.speed !== null ? Number(firstGps.speed) : null,
+      heading: firstGps.heading !== undefined && firstGps.heading !== null ? Number(firstGps.heading) : null,
+      gps_timestamp: firstGps.gps_timestamp || new Date().toISOString(),
+      updated_at: Date.now(),
+      source: PROTOTYPE_UPLOAD_BUS.source,
+      destination: PROTOTYPE_UPLOAD_BUS.destination,
+      route_name: PROTOTYPE_UPLOAD_BUS.route_name
+    };
+    latestBusLocations.set(`UPLOAD_${sessionId}`, uploadBusPayload);
+    if (io) io.emit('citizen-bus-location', uploadBusPayload);
+  }
+
   // 2. Respond immediately to the frontend without waiting for video processing to finish
   res.status(200).json({
     success: true,
@@ -655,7 +995,7 @@ app.post('/api/process-session/:sessionId', async (req, res) => {
 
       if (!edgeResp.ok) {
         const errorText = await edgeResp.text();
-        console.error(`[Upload Mode AI Error] Background processing failed: ${errorText}`);
+        console.error(`[Upload Mode AI Error] Edge microservice returned HTTP ${edgeResp.status}:`, errorText);
         const errProgress = {
           session_id: sessionId,
           status: 'ERROR',
@@ -664,6 +1004,8 @@ app.post('/api/process-session/:sessionId', async (req, res) => {
         };
         videoJobProgress.set(sessionId, errProgress);
         io.emit('video-processing-progress', errProgress);
+        // Remove from active citizen buses
+        latestBusLocations.delete(`UPLOAD_${sessionId}`);
         return;
       }
 
@@ -686,6 +1028,8 @@ app.post('/api/process-session/:sessionId', async (req, res) => {
       };
       videoJobProgress.set(sessionId, completedProgress);
       io.emit('video-processing-progress', completedProgress);
+      // Remove from active citizen buses once processing finishes
+      latestBusLocations.delete(`UPLOAD_${sessionId}`);
     } catch (bgErr) {
       console.error(`[Upload Mode AI Exception] Background job failed for ${sessionId}:`, bgErr.message);
       const failProgress = {
@@ -696,6 +1040,8 @@ app.post('/api/process-session/:sessionId', async (req, res) => {
       };
       videoJobProgress.set(sessionId, failProgress);
       io.emit('video-processing-progress', failProgress);
+      // Remove from active citizen buses
+      latestBusLocations.delete(`UPLOAD_${sessionId}`);
     }
   })();
 });
@@ -716,6 +1062,30 @@ app.post('/api/edge/video-progress', (req, res) => {
 
   videoJobProgress.set(session_id, merged);
   io.emit('video-processing-progress', merged);
+
+  // If Edge sends current_gps during video processing, update latestBusLocations for Citizen Portal
+  if (req.body && req.body.current_gps && req.body.current_gps.latitude && req.body.current_gps.longitude) {
+    const edgeGps = req.body.current_gps;
+    const uploadBusPayload = {
+      bus_id: PROTOTYPE_UPLOAD_BUS.bus_id,
+      session_id: session_id,
+      source_type: 'UPLOAD_PROCESSING',
+      latitude: Number(edgeGps.latitude),
+      longitude: Number(edgeGps.longitude),
+      speed: edgeGps.speed !== undefined && edgeGps.speed !== null ? Number(edgeGps.speed) : null,
+      heading: edgeGps.heading !== undefined && edgeGps.heading !== null ? Number(edgeGps.heading) : null,
+      gps_timestamp: edgeGps.gps_timestamp || new Date().toISOString(),
+      updated_at: Date.now(),
+      source: PROTOTYPE_UPLOAD_BUS.source,
+      destination: PROTOTYPE_UPLOAD_BUS.destination,
+      route_name: PROTOTYPE_UPLOAD_BUS.route_name
+    };
+    latestBusLocations.set(`UPLOAD_${session_id}`, uploadBusPayload);
+    if (io) {
+      io.emit('citizen-bus-location', uploadBusPayload);
+    }
+  }
+
   return res.json({ success: true });
 });
 
@@ -1991,6 +2361,26 @@ app.post('/api/location', async (req, res) => {
     ...locationRecord,
     dbConfigured: supabase.isSupabaseConfigured()
   });
+
+  // Update latestBusLocations for Citizen Portal (SOURCE A: Mobile Live GPS)
+  const activeBusId = bus_id || PROTOTYPE_MOBILE_BUS.bus_id;
+  const route = busRoutes.get(activeBusId) || PROTOTYPE_MOBILE_BUS;
+  const busLocPayload = {
+    bus_id: activeBusId,
+    session_id,
+    source_type: 'LIVE',
+    latitude: latNum,
+    longitude: lonNum,
+    speed: locationRecord.speed,
+    heading: locationRecord.heading,
+    gps_timestamp: locationRecord.gps_timestamp,
+    updated_at: Date.now(),
+    source: route.source || PROTOTYPE_MOBILE_BUS.source,
+    destination: route.destination || PROTOTYPE_MOBILE_BUS.destination,
+    route_name: route.route_name || PROTOTYPE_MOBILE_BUS.route_name
+  };
+  latestBusLocations.set(activeBusId, busLocPayload);
+  io.emit('citizen-bus-location', busLocPayload);
 
   res.status(200).json({
     success: true,

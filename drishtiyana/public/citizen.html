@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>City Bus Tracking - DRISHTIYANA</title>
+  <meta name="description" content="City bus tracking within 2 KM of your live location using OpenStreetMap.">
+
+  <!-- Inter Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Leaflet GIS Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+  <!-- Citizen Portal Light Theme Styles -->
+  <link rel="stylesheet" href="citizen.css">
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header class="citizen-header">
+    <div class="header-brand">
+      <div class="header-brand-icon">🚌</div>
+      <div class="header-brand-text">
+        <div class="brand-title">CITY BUS TRACKING</div>
+        <div class="brand-subtitle">Nearby buses &bull; Within 2 KM of your location</div>
+      </div>
+    </div>
+
+    <div class="header-user-group">
+      <span class="citizen-badge">👤 Citizen</span>
+      <button id="btnLogout" class="btn-logout" type="button" title="Sign out of Citizen Portal">
+        🚪 Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Dashboard Layout -->
+  <main class="citizen-dashboard">
+
+    <!-- Left Sidebar: Location Card + Nearby Buses -->
+    <aside class="citizen-sidebar">
+
+      <!-- Location Status Card -->
+      <div class="clean-card">
+        <div class="clean-card-header">
+          <div class="clean-card-title">📍 Your Location</div>
+        </div>
+        <div class="clean-card-body">
+          <div class="location-status-list">
+            <div class="location-status-row">
+              <span class="status-label">Location access:</span>
+              <span id="locAccessBadge" class="status-pill active">Active</span>
+            </div>
+            <div class="location-status-row">
+              <span class="status-label">Latitude:</span>
+              <span id="locLatDisplay" class="status-val mono">--.------</span>
+            </div>
+            <div class="location-status-row">
+              <span class="status-label">Longitude:</span>
+              <span id="locLonDisplay" class="status-val mono">--.------</span>
+            </div>
+          </div>
+
+          <!-- Prototype Presets for testing -->
+          <div class="location-presets">
+            <span style="font-size: 0.72rem; color: var(--text-muted); width: 100%; margin-bottom: 0.2rem;">Prototype Presets:</span>
+            <button class="preset-btn" data-lat="17.391640" data-lon="78.319720" type="button">CBIT Campus</button>
+            <button class="preset-btn" data-lat="17.494700" data-lon="78.358200" type="button">Miyapur</button>
+            <button class="preset-btn" data-lat="17.437462" data-lon="78.448288" type="button">Ameerpet</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nearby Buses Card -->
+      <div class="clean-card">
+        <div class="clean-card-header">
+          <div class="clean-card-title">Nearby buses</div>
+          <span id="nearbyCountBadge" class="buses-count-badge">0 Buses</span>
+        </div>
+        <div class="clean-card-body" style="padding: 0.85rem;">
+          
+          <!-- Nearby Bus Cards Container -->
+          <div id="nearbyBusesContainer" class="nearby-buses-list"></div>
+
+          <!-- Empty State: No buses available -->
+          <div id="noBusesState" class="no-buses-card" style="display: none;">
+            <div class="no-buses-icon">🚏</div>
+            <div class="no-buses-title">No buses available</div>
+            <div class="no-buses-desc">There are currently no active buses near your location.</div>
+          </div>
+
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Right Dominant Map Card -->
+    <section class="citizen-map-card" aria-label="Interactive City Bus Map">
+      <div class="map-card-header">
+        <div class="map-title-group">
+          <span>🗺️ LIVE TRANSIT MAP</span>
+          <span style="font-size: 0.76rem; font-weight: 500; color: var(--text-muted);">(2 KM Radius Geofence)</span>
+        </div>
+        <div class="map-tools-group">
+          <button id="btnRecenter" class="map-btn" type="button" title="Center map on your location">
+            📍 My Location
+          </button>
+          <button id="btnRefreshBuses" class="map-btn" type="button" title="Refresh nearby active buses">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Leaflet Map Container -->
+      <div id="citizenMap"></div>
+    </section>
+
+  </main>
+
+  <!-- Leaflet GIS Map JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Socket.IO Client -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- Citizen Portal Controller -->
+  <script src="citizen.js"></script>
+</body>
+</html>
