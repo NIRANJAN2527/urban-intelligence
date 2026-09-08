@@ -41,9 +41,114 @@ if (!fs.existsSync(evidenceDir)) {
 // Serve uploaded evidence frames
 app.use('/uploads', express.static(uploadsDir));
 
+// HTTP -> HTTPS redirect middleware for browser pages (preserves /ca.crt, /ca.pem, and backend API calls)
+app.use((req, res, next) => {
+  if (!req.secure && req.socket && req.socket.localPort === HTTP_PORT) {
+    const isExempt = req.path === '/ca.crt' || req.path === '/ca.pem' || req.path.startsWith('/api/');
+    if (!isExempt) {
+      const hostHeader = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+      return res.redirect(302, `https://${hostHeader}:${HTTPS_PORT}${req.originalUrl}`);
+    }
+  }
+  next();
+});
+
 // Serve static frontend files from public/
 const publicDir = path.join(__dirname, '..', 'public');
 app.use(express.static(publicDir));
+
+// ==============================================================================
+// CONFIGURABLE AI CONFIDENCE THRESHOLDS & VERIFICATION GATEWAY
+// ==============================================================================
+const AUTO_VERIFY_THRESHOLD = parseFloat(process.env.AUTO_VERIFY_THRESHOLD || '0.90');
+const REVIEW_THRESHOLD = parseFloat(process.env.REVIEW_THRESHOLD || '0.60');
+
+/**
+ * Evaluates the confidence verification gate for incoming or legacy detections:
+ * - confidence >= AUTO_VERIFY_THRESHOLD (>= 0.90) -> VERIFIED / AUTO_VERIFIED (is_active: true)
+ * - REVIEW_THRESHOLD <= confidence < AUTO_VERIFY_THRESHOLD (0.60 - 0.8999) -> PENDING_REVIEW / HUMAN_REVIEW_REQUIRED (is_active: true)
+ * - confidence < REVIEW_THRESHOLD (< 0.60) -> REJECTED / AUTO_REJECTED (is_active: false)
+ */
+function evaluateVerificationGate(confidence, explicitStatus = null, explicitMethod = null) {
+  const conf = typeof confidence === 'number' ? confidence : parseFloat(confidence || 0);
+
+  // If explicit status was specified in the payload (e.g. from tests or prior system step)
+  if (explicitStatus) {
+    const status = String(explicitStatus).toUpperCase();
+    const method = explicitMethod || (status === 'VERIFIED' ? 'HUMAN_VERIFIED' : (status === 'REJECTED' ? 'HUMAN_REJECTED' : 'HUMAN_REVIEW_REQUIRED'));
+    return {
+      verification_status: status,
+      verification_method: method,
+      is_active: status !== 'REJECTED'
+    };
+  }
+
+  // Automated Gate Evaluation
+  if (conf >= AUTO_VERIFY_THRESHOLD) {
+    return {
+      verification_status: 'VERIFIED',
+      verification_method: 'AUTO_VERIFIED',
+      is_active: true
+    };
+  } else if (conf >= REVIEW_THRESHOLD) {
+    return {
+      verification_status: 'PENDING_REVIEW',
+      verification_method: 'HUMAN_REVIEW_REQUIRED',
+      is_active: true
+    };
+  } else {
+    return {
+      verification_status: 'REJECTED',
+      verification_method: 'AUTO_REJECTED',
+      is_active: false
+    };
+  }
+}
+
+// ==============================================================================
+// ROOT CA CERTIFICATE DOWNLOAD FOR MOBILE DEVICES / LAN CLIENTS
+// ==============================================================================
+app.get('/ca.crt', (req, res) => {
+  const rootCaPath = path.join(__dirname, 'certs', 'rootCA.crt');
+  const rootCaPemPath = path.join(__dirname, 'certs', 'rootCA.pem');
+  const targetPath = fs.existsSync(rootCaPath) ? rootCaPath : (fs.existsSync(rootCaPemPath) ? rootCaPemPath : null);
+  if (!targetPath) {
+    return res.status(404).send('Root CA certificate not found. Please run: npm run generate-cert');
+  }
+  res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+  res.setHeader('Content-Disposition', 'attachment; filename="drishtiyana-rootCA.crt"');
+  res.sendFile(targetPath);
+});
+
+app.get('/ca.pem', (req, res) => {
+  const rootCaPemPath = path.join(__dirname, 'certs', 'rootCA.pem');
+  if (!fs.existsSync(rootCaPemPath)) {
+    return res.status(404).send('Root CA certificate not found. Please run: npm run generate-cert');
+  }
+  res.setHeader('Content-Type', 'application/x-pem-file');
+  res.setHeader('Content-Disposition', 'attachment; filename="rootCA.pem"');
+  res.sendFile(rootCaPemPath);
+});
+
+app.get('/api/ca/info', (req, res) => {
+  const certDir = path.join(__dirname, 'certs');
+  const keyExists = fs.existsSync(path.join(certDir, 'key.pem'));
+  const certExists = fs.existsSync(path.join(certDir, 'cert.pem'));
+  const caExists = fs.existsSync(path.join(certDir, 'rootCA.crt'));
+  const localIps = getLocalIpAddresses();
+
+  res.json({
+    success: true,
+    certificate_ready: keyExists && certExists && caExists,
+    ca_download_url_http: `http://${localIps[0] || 'localhost'}:${HTTP_PORT}/ca.crt`,
+    ca_download_url_https: `https://${localIps[0] || 'localhost'}:${HTTPS_PORT}/ca.crt`,
+    primary_ip: localIps[0] || 'localhost',
+    http_port: HTTP_PORT,
+    https_port: HTTPS_PORT,
+    covered_domains: ['localhost', '127.0.0.1', ...localIps, '::1']
+  });
+});
+
 
 // ==============================================================================
 // AUTHENTICATION & SESSION MANAGEMENT
@@ -624,6 +729,59 @@ app.get('/api/session-gps/:sessionId', async (req, res) => {
   res.json(result);
 });
 
+// Reverse Proxy: GET /api/edge/health -> Python Edge Service (5001)
+app.get('/api/edge/health', async (req, res) => {
+  try {
+    const edgeResp = await fetch('http://127.0.0.1:5001/api/edge/health', { method: 'GET' });
+    if (!edgeResp.ok) {
+      return res.status(edgeResp.status).json({ ok: false, error: 'Edge AI microservice returned error status' });
+    }
+    const data = await edgeResp.json();
+    return res.json(data);
+  } catch (err) {
+    return res.status(503).json({ ok: false, error: 'Edge AI service unreachable on port 5001', details: err.message });
+  }
+});
+
+// Reverse Proxy: POST /api/edge/process-frame -> Python Edge Service (5001)
+const frameProxyUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
+
+app.post('/api/edge/process-frame', frameProxyUpload.single('frame'), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, error: 'No frame buffer provided' });
+    }
+
+    const form = new FormData();
+    const frameBlob = new Blob([req.file.buffer], { type: req.file.mimetype || 'image/jpeg' });
+    form.append('frame', frameBlob, req.file.originalname || 'frame.jpg');
+
+    if (req.body) {
+      for (const [key, val] of Object.entries(req.body)) {
+        form.append(key, val);
+      }
+    }
+
+    const edgeResp = await fetch('http://127.0.0.1:5001/api/edge/process-frame', {
+      method: 'POST',
+      body: form
+    });
+
+    if (!edgeResp.ok) {
+      const errTxt = await edgeResp.text();
+      return res.status(edgeResp.status).send(errTxt);
+    }
+
+    const data = await edgeResp.json();
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Edge processing proxy error', details: err.message });
+  }
+});
+
 // ==============================================================================
 // ADMIN & COMMAND PORTAL TAXONOMY, REVERSE GEOCODING & STORAGE
 // ==============================================================================
@@ -946,6 +1104,18 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
         if (bbox_x2) duplicateTarget.bbox_x2 = parseInt(bbox_x2, 10);
         if (bbox_y2) duplicateTarget.bbox_y2 = parseInt(bbox_y2, 10);
 
+        // If not human verified, update verification gate with higher confidence
+        if (duplicateTarget.verification_method !== 'HUMAN_VERIFIED') {
+          const updatedGate = evaluateVerificationGate(newConf);
+          duplicateTarget.verification_status = updatedGate.verification_status;
+          duplicateTarget.verification_method = updatedGate.verification_method;
+          duplicateTarget.is_active = updatedGate.is_active;
+          if (updatedGate.verification_status === 'VERIFIED' && !duplicateTarget.verified_at) {
+            duplicateTarget.verified_at = new Date().toISOString();
+            duplicateTarget.verified_by = 'SYSTEM_AUTO_VERIFY';
+          }
+        }
+
         if (parsedRiskScore !== null && parsedRiskScore > (duplicateTarget.risk_score || 0)) {
           duplicateTarget.risk_score = parsedRiskScore;
           duplicateTarget.risk_level = parsedRiskLevel;
@@ -1010,6 +1180,11 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     }
 
     const taxonomy = resolveEventTaxonomy(class_name);
+    const gateResult = evaluateVerificationGate(
+      newConf,
+      req.body.verification_status || null,
+      req.body.verification_method || null
+    );
 
     const eventRecord = {
       event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -1045,13 +1220,14 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       video_source: req.body.video_source || req.body.video_filename || null,
       source_type: req.body.source_type || 'UPLOAD',
       evidence_image_url: evidenceImageUrl,
-      verification_status: req.body.verification_status || 'PENDING_REVIEW',
-      is_active: req.body.is_active !== undefined ? (req.body.is_active === true || req.body.is_active === 'true' || req.body.is_active === 1) : true,
-      verified_at: null,
-      verified_by: null,
-      rejected_at: null,
-      rejected_by: null,
-      rejection_reason: null
+      verification_status: gateResult.verification_status,
+      verification_method: gateResult.verification_method,
+      is_active: req.body.is_active !== undefined ? (req.body.is_active === true || req.body.is_active === 'true' || req.body.is_active === 1) : gateResult.is_active,
+      verified_at: gateResult.verification_status === 'VERIFIED' ? new Date().toISOString() : null,
+      verified_by: gateResult.verification_method === 'AUTO_VERIFIED' ? 'SYSTEM_AUTO_VERIFY' : null,
+      rejected_at: gateResult.verification_status === 'REJECTED' ? new Date().toISOString() : null,
+      rejected_by: gateResult.verification_method === 'AUTO_REJECTED' ? 'SYSTEM_CONFIDENCE_GATE' : null,
+      rejection_reason: gateResult.verification_status === 'REJECTED' ? `Confidence ${(newConf * 100).toFixed(1)}% is below review threshold ${(REVIEW_THRESHOLD * 100).toFixed(0)}%` : null
     };
 
     // Cache in in-memory event store
@@ -1097,6 +1273,9 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       department: eventRecord.department,
       evidence_image_url: evidenceImageUrl,
       confidence: eventRecord.confidence,
+      verification_status: eventRecord.verification_status,
+      verification_method: eventRecord.verification_method,
+      is_active: eventRecord.is_active,
       dbSaved,
       dbConfigured: supabase.isSupabaseConfigured()
     });
@@ -1110,11 +1289,15 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
 // ADMIN & COMMAND PORTAL APIS (SECURED)
 // ==============================================================================
 
-// GET /api/admin/config: Returns taxonomy definitions and departments
+// GET /api/admin/config: Returns taxonomy definitions, thresholds and departments
 app.get('/api/admin/config', requireAdminAuth, (req, res) => {
   res.json({
     success: true,
     taxonomy: EVENT_TAXONOMY,
+    thresholds: {
+      auto_verify_threshold: AUTO_VERIFY_THRESHOLD,
+      review_threshold: REVIEW_THRESHOLD
+    },
     departments: [
       'ROAD MAINTENANCE',
       'TRAFFIC',
@@ -1200,7 +1383,9 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         evidence_image_url: evt.evidence_image_url || null,
         video_source: evt.video_source || null,
         source_type: evt.source_type || 'LIVE',
-        verification_status: evt.verification_status || 'PENDING_REVIEW',
+        // Safe legacy fallback: Do NOT fabricate human verification, default missing status to PENDING_REVIEW
+        verification_status: evt.verification_status || (evt.status === 'VERIFIED' ? 'VERIFIED' : 'PENDING_REVIEW'),
+        verification_method: evt.verification_method || (evt.verification_status === 'VERIFIED' ? (evt.confidence >= AUTO_VERIFY_THRESHOLD ? 'AUTO_VERIFIED' : 'HUMAN_VERIFIED') : 'HUMAN_REVIEW_REQUIRED'),
         is_active: evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true,
         verified_at: evt.verified_at || null,
         verified_by: evt.verified_by || null,
@@ -1412,9 +1597,13 @@ app.patch('/api/admin/events/:eventId/verify', requireAdminAuth, async (req, res
     }
 
     event.verification_status = 'VERIFIED';
+    event.verification_method = 'HUMAN_VERIFIED';
     event.is_active = true;
     event.verified_at = new Date().toISOString();
     event.verified_by = req.adminUser ? req.adminUser.username : 'admin';
+    event.rejected_at = null;
+    event.rejected_by = null;
+    event.rejection_reason = null;
     inMemoryEvents.set(eventId, event);
 
     if (supabase.isSupabaseConfigured()) {
@@ -1424,13 +1613,14 @@ app.patch('/api/admin/events/:eventId/verify', requireAdminAuth, async (req, res
     io.emit('event-verified', {
       event_id: eventId,
       verification_status: 'VERIFIED',
+      verification_method: 'HUMAN_VERIFIED',
       is_active: true,
       verified_by: event.verified_by,
       verified_at: event.verified_at
     });
 
-    console.log(`[Admin Verification] Event ${eventId} marked as VERIFIED by ${event.verified_by}`);
-    return res.json({ success: true, event_id: eventId, verification_status: 'VERIFIED', is_active: true, event });
+    console.log(`[Admin Verification] Event ${eventId} marked as VERIFIED (${event.verification_method}) by ${event.verified_by}`);
+    return res.json({ success: true, event_id: eventId, verification_status: 'VERIFIED', verification_method: 'HUMAN_VERIFIED', is_active: true, event });
   } catch (err) {
     console.error('[Admin API Error] /api/admin/events/:eventId/verify:', err.message);
     return res.status(500).json({ success: false, error: err.message });
@@ -1455,6 +1645,7 @@ app.patch('/api/admin/events/:eventId/reject', requireAdminAuth, async (req, res
     }
 
     event.verification_status = 'REJECTED';
+    event.verification_method = 'HUMAN_REJECTED';
     event.is_active = false;
     event.rejection_reason = reason || 'False positive / Rejected by Admin';
     event.rejected_at = new Date().toISOString();
@@ -1468,14 +1659,15 @@ app.patch('/api/admin/events/:eventId/reject', requireAdminAuth, async (req, res
     io.emit('event-rejected', {
       event_id: eventId,
       verification_status: 'REJECTED',
+      verification_method: 'HUMAN_REJECTED',
       is_active: false,
       rejected_by: event.rejected_by,
       rejected_at: event.rejected_at,
       rejection_reason: event.rejection_reason
     });
 
-    console.log(`[Admin Verification] Event ${eventId} marked as REJECTED by ${event.rejected_by} (soft-deleted from active map)`);
-    return res.json({ success: true, event_id: eventId, verification_status: 'REJECTED', is_active: false, event });
+    console.log(`[Admin Verification] Event ${eventId} marked as REJECTED (${event.verification_method}) by ${event.rejected_by} (soft-deleted from active map)`);
+    return res.json({ success: true, event_id: eventId, verification_status: 'REJECTED', verification_method: 'HUMAN_REJECTED', is_active: false, event });
   } catch (err) {
     console.error('[Admin API Error] /api/admin/events/:eventId/reject:', err.message);
     return res.status(500).json({ success: false, error: err.message });
@@ -1760,13 +1952,27 @@ app.post('/api/location', async (req, res) => {
   });
 });
 
-// Generate self-signed certificate for HTTPS
-const attrs = [{ name: 'commonName', value: 'drishtiyana.local' }];
-const pems = selfsigned.generate(attrs, { days: 30, keySize: 2048 });
-const sslOptions = {
-  key: pems.private,
-  cert: pems.cert
-};
+// Load locally trusted mkcert development certificate from certs/ (or fall back to self-signed)
+const certDir = path.join(__dirname, 'certs');
+const certKeyPath = path.join(certDir, 'key.pem');
+const certCrtPath = path.join(certDir, 'cert.pem');
+
+let sslOptions = null;
+if (fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
+  console.log('[HTTPS] Loading locally trusted mkcert development certificate from certs/');
+  sslOptions = {
+    key: fs.readFileSync(certKeyPath),
+    cert: fs.readFileSync(certCrtPath)
+  };
+} else {
+  console.warn('[HTTPS Warning] certs/key.pem or certs/cert.pem not found. Falling back to self-signed cert.');
+  const attrs = [{ name: 'commonName', value: 'drishtiyana.local' }];
+  const pems = selfsigned.generate(attrs, { days: 30, keySize: 2048 });
+  sslOptions = {
+    key: pems.private,
+    cert: pems.cert
+  };
+}
 
 // Create both HTTP and HTTPS servers
 const httpServer = http.createServer(app);
@@ -1852,11 +2058,14 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
     console.log('       Mode 2: File Upload (Video + GPS) & Synchronized GIS');
     console.log('============================================================');
     console.log(`\n[Database Status]: ${supabase.isSupabaseConfigured() ? '🟢 Supabase Connected' : '⚪ Local Relay (Supabase unconfigured)'}`);
-    console.log('\n[1] LAPTOP EDGE MONITOR (Open on this laptop):');
-    console.log(`    👉 http://localhost:${HTTP_PORT}/viewer`);
-    console.log(`    👉 https://localhost:${HTTPS_PORT}/viewer`);
-    console.log('\n[2] PHONE BUS SENSOR (Open on mobile for Live Mode):');
-    console.log(`    👉 https://${primaryIp}:${HTTPS_PORT}/mobile`);
+    console.log(`[Verification Gate]: Auto-verify ≥ ${(AUTO_VERIFY_THRESHOLD * 100).toFixed(0)}% | Review: ${(REVIEW_THRESHOLD * 100).toFixed(0)}%–${((AUTO_VERIFY_THRESHOLD - 0.0001) * 100).toFixed(1)}% | Reject: < ${(REVIEW_THRESHOLD * 100).toFixed(0)}%`);
+    console.log('\n[1] LAPTOP / LOCAL ACCESS:');
+    console.log(`    👉 Admin Portal:  https://localhost:${HTTPS_PORT}/admin`);
+    console.log(`    👉 Edge Monitor:  https://localhost:${HTTPS_PORT}/viewer`);
+    console.log('\n[2] MOBILE BUS SENSOR & LAN ACCESS:');
+    console.log(`    👉 Bus Sensor:    https://${primaryIp}:${HTTPS_PORT}/mobile`);
+    console.log(`    👉 Admin Portal:  https://${primaryIp}:${HTTPS_PORT}/admin`);
+    console.log(`    👉 Root CA Cert:  http://${primaryIp}:${HTTP_PORT}/ca.crt (Install on phone/laptop for trusted CA)`);
     console.log('============================================================\n');
   });
 });

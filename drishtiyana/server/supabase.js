@@ -221,7 +221,15 @@ async function insertPotholeEvent(eventData) {
       category: eventData.category || 'Road & Infrastructure',
       department: eventData.department || 'ROAD MAINTENANCE',
       report_status: eventData.report_status || 'PENDING',
-      report_id: eventData.report_id || null
+      report_id: eventData.report_id || null,
+      verification_status: eventData.verification_status || 'PENDING_REVIEW',
+      verification_method: eventData.verification_method || 'HUMAN_REVIEW_REQUIRED',
+      is_active: eventData.is_active !== undefined ? eventData.is_active : true,
+      verified_at: eventData.verified_at || null,
+      verified_by: eventData.verified_by || null,
+      rejected_at: eventData.rejected_at || null,
+      rejected_by: eventData.rejected_by || null,
+      rejection_reason: eventData.rejection_reason || null
     };
 
     const { data, error } = await supabase
@@ -322,14 +330,17 @@ async function updateEventStatus(eventId, newStatus) {
 /**
  * Update event verification status on pothole_events (VERIFIED, REJECTED, PENDING_REVIEW)
  */
-async function updateEventVerificationStatus(eventId, verificationStatus, isActive = true) {
+async function updateEventVerificationStatus(eventId, verificationStatus, isActive = true, auditData = {}) {
   if (!isSupabaseConfigured()) {
     return { success: false, reason: 'unconfigured' };
   }
 
   try {
     const updatePayload = {
-      status: verificationStatus === 'REJECTED' ? 'REJECTED' : (verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'NEW')
+      status: verificationStatus === 'REJECTED' ? 'REJECTED' : (verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'NEW'),
+      verification_status: verificationStatus,
+      is_active: isActive,
+      ...auditData
     };
 
     const { data, error } = await supabase

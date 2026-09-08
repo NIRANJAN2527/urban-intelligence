@@ -19,8 +19,9 @@ start "DRISHTIYANA Node Server (Ports 3000 & 3001)" cmd /k "cd /d "%~dp0server" 
 echo.
 echo ========================================================
 echo All DRISHTIYANA servers are running in separate windows!
-echo - Admin Portal : http://localhost:3000/admin
-echo - Laptop Viewer: http://localhost:3000/viewer
+echo - Admin Portal : https://localhost:3001/admin
+echo - Laptop Viewer: https://localhost:3001/viewer
 echo - Phone Stream : Check Node.js terminal for mobile HTTPS URL
+echo - Mobile Root CA: http://localhost:3000/ca.crt
 echo ========================================================
 pause

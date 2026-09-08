@@ -1208,7 +1208,7 @@ function initUploadGisMap(records) {
 
 async function checkEdgeServiceHealth() {
   try {
-    const res = await fetch('http://localhost:5001/api/edge/health', { method: 'GET' });
+    const res = await fetch('/api/edge/health', { method: 'GET' });
     if (res.ok) {
       const data = await res.json();
       return { ok: true, data };
@@ -1320,7 +1320,7 @@ async function captureAndProcessEdgeFrame() {
         formData.append('video_timestamp', frameTimeIso);
         formData.append('gps_records', JSON.stringify(recentGpsBuffer));
 
-        const res = await fetch('http://localhost:5001/api/edge/process-frame', {
+        const res = await fetch('/api/edge/process-frame', {
           method: 'POST',
           body: formData
         });

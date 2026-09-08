@@ -82,6 +82,14 @@ CREATE TABLE IF NOT EXISTS pothole_events (
     department TEXT DEFAULT 'ROAD MAINTENANCE',
     report_status TEXT DEFAULT 'PENDING', -- 'PENDING', 'SENT', 'FAILED'
     report_id TEXT,
+    verification_status TEXT DEFAULT 'PENDING_REVIEW', -- 'VERIFIED', 'PENDING_REVIEW', 'REJECTED'
+    verification_method TEXT DEFAULT 'HUMAN_REVIEW_REQUIRED', -- 'AUTO_VERIFIED', 'HUMAN_VERIFIED', 'HUMAN_REVIEW_REQUIRED', 'AUTO_REJECTED', 'HUMAN_REJECTED'
+    is_active BOOLEAN DEFAULT TRUE,
+    verified_at TIMESTAMPTZ,
+    verified_by TEXT,
+    rejected_at TIMESTAMPTZ,
+    rejected_by TEXT,
+    rejection_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -94,6 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_report_status ON pothole_events(report_status);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_verification_status ON pothole_events(verification_status);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_is_active ON pothole_events(is_active);
 
 -- ==============================================================================
 -- 4. Table: department_reports

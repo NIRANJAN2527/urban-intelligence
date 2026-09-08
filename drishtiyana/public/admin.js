@@ -127,6 +127,27 @@ const confirmModalProblem = document.getElementById('confirmModalProblem');
 const confirmModalConf = document.getElementById('confirmModalConf');
 const cancelReportBtn = document.getElementById('cancelReportBtn');
 const confirmSendReportBtn = document.getElementById('confirmSendReportBtn');
+const reportPreviewSubject = document.getElementById('reportPreviewSubject');
+const reportPreviewPriority = document.getElementById('reportPreviewPriority');
+const reportPreviewTimestamp = document.getElementById('reportPreviewTimestamp');
+const reportPreviewLocation = document.getElementById('reportPreviewLocation');
+const reportPreviewEvidenceImg = document.getElementById('reportPreviewEvidenceImg');
+const reportPreviewEvidencePlaceholder = document.getElementById('reportPreviewEvidencePlaceholder');
+const reportPreviewDesc = document.getElementById('reportPreviewDesc');
+
+// Top Department Cards & Sub-Filter Bar Elements
+const deptCardRoad = document.getElementById('deptCard-road');
+const deptCardTraffic = document.getElementById('deptCard-traffic');
+const deptCardAll = document.getElementById('deptCard-all');
+const deptCountRoadEl = document.getElementById('deptCountRoad');
+const deptCountTrafficEl = document.getElementById('deptCountTraffic');
+const deptCountAllEl = document.getElementById('deptCountAll');
+const selectedDeptHeading = document.getElementById('selectedDeptHeading');
+const deptStatusTabs = document.getElementById('deptStatusTabs');
+const subCountPendingEl = document.getElementById('subCountPending');
+const subCountVerifiedEl = document.getElementById('subCountVerified');
+const subCountReportedEl = document.getElementById('subCountReported');
+const subCountAllEl = document.getElementById('subCountAll');
 
 // ==============================================================================
 // 1.1 AUTHENTICATION HELPERS
@@ -298,12 +319,12 @@ function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
 
   const catNorm = (category || '').toLowerCase();
   const probNorm = (problem || '').toLowerCase();
+  const isPothole = probNorm.includes('pothole');
 
-  // ROAD & INFRASTRUCTURE CATEGORIES
-  if (probNorm.includes('pothole')) {
+  // Dedicated Road Defect Pothole Marker with Custom SVG
+  if (isPothole) {
     catClass = 'road';
     subClass = 'pothole';
-    iconEmoji = '🕳️';
   } else if (probNorm.includes('water') || probNorm.includes('flood') || probNorm.includes('drain')) {
     catClass = 'road';
     subClass = 'waterlogging';
@@ -331,17 +352,29 @@ function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
   const vStat = (verificationStatus || 'PENDING_REVIEW').toUpperCase();
 
   let vClass = 'marker-pending';
-  let vBadgeHtml = '<span class="marker-vbadge pending" title="Candidate: Pending Review">⏳</span>';
+  let vBadgeHtml = '<span class="marker-vbadge pending" title="Pothole: Pending Review">⏳</span>';
   if (vStat === 'VERIFIED') {
     vClass = 'marker-verified';
-    vBadgeHtml = '<span class="marker-vbadge verified" title="Confirmed: Verified">✓</span>';
+    vBadgeHtml = '<span class="marker-vbadge verified" title="Pothole: Verified">✓</span>';
+  }
+
+  // Use crisp road-damage SVG for potholes
+  let innerIconHtml = iconEmoji;
+  if (isPothole) {
+    innerIconHtml = `
+      <svg class="pothole-svg-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" title="Road Damage: Pothole">
+        <path d="M2 18h20"/>
+        <path d="M5 18l3-6 4 3 4-7 2 4 3-2 1 8"/>
+        <ellipse cx="12" cy="18" rx="5" ry="2.2" fill="currentColor" opacity="0.35"/>
+      </svg>
+    `;
   }
 
   return L.divIcon({
     className: 'gis-marker-container',
     html: `
-      <div class="gis-marker-pin ${catClass} ${subClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Defect'} (${vStat})">
-        ${iconEmoji}
+      <div class="gis-marker-pin ${catClass} ${subClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Pothole'} (${vStat === 'VERIFIED' ? 'Verified' : 'Pending Review'})">
+        ${innerIconHtml}
         ${vBadgeHtml}
       </div>
     `,
@@ -401,29 +434,109 @@ async function fetchStats() {
   }
 }
 
+// Department-Centric State
+let currentSelectedDepartment = 'ROAD MAINTENANCE'; // 'ROAD MAINTENANCE' | 'TRAFFIC' | 'ALL'
+let currentSubFilter = 'ALL'; // 'ALL' | 'PENDING_REVIEW' | 'VERIFIED' | 'REPORTED'
+
+function isRoadEvent(evt) {
+  const dept = String(evt.department || '').toUpperCase();
+  const cat = String(evt.category || '').toLowerCase();
+  const prob = String(evt.problem || evt.problem_type || evt.class_name || '').toLowerCase();
+  return dept.includes('ROAD') || cat.includes('road') || cat.includes('infra') ||
+    prob.includes('pothole') || prob.includes('crack') || prob.includes('divider') ||
+    prob.includes('zebra') || prob.includes('damage') || prob.includes('waterlog');
+}
+
+function isTrafficEvent(evt) {
+  const dept = String(evt.department || '').toUpperCase();
+  const cat = String(evt.category || '').toLowerCase();
+  const prob = String(evt.problem || evt.problem_type || evt.class_name || '').toLowerCase();
+  return dept.includes('TRAFFIC') || cat.includes('traffic') ||
+    prob.includes('congestion') || prob.includes('density') || prob.includes('bottleneck') || prob.includes('hazard');
+}
+
+function applyDepartmentFiltersAndRender() {
+  if (!Array.isArray(allEventsCache)) return;
+
+  // 1. Calculate department overview counts from active events
+  const activeEvents = allEventsCache.filter(e => e.is_active !== false && (e.verification_status || '').toUpperCase() !== 'REJECTED');
+  const roadTotal = activeEvents.filter(isRoadEvent).length;
+  const trafficTotal = activeEvents.filter(isTrafficEvent).length;
+  const allTotal = activeEvents.length;
+
+  if (deptCountRoadEl) deptCountRoadEl.textContent = roadTotal;
+  if (deptCountTrafficEl) deptCountTrafficEl.textContent = trafficTotal;
+  if (deptCountAllEl) deptCountAllEl.textContent = allTotal;
+
+  // 2. Filter by currently selected department
+  let deptFiltered = activeEvents;
+  if (currentSelectedDepartment === 'ROAD MAINTENANCE') {
+    deptFiltered = activeEvents.filter(isRoadEvent);
+  } else if (currentSelectedDepartment === 'TRAFFIC') {
+    deptFiltered = activeEvents.filter(isTrafficEvent);
+  }
+
+  // 3. Calculate sub-counts for the active department
+  const subPending = deptFiltered.filter(e => (e.verification_status || 'PENDING_REVIEW').toUpperCase() === 'PENDING_REVIEW').length;
+  const subVerified = deptFiltered.filter(e => (e.verification_status || '').toUpperCase() === 'VERIFIED' && (e.report_status || '').toUpperCase() !== 'SENT').length;
+  const subReported = deptFiltered.filter(e => (e.report_status || '').toUpperCase() === 'SENT').length;
+  const subAll = deptFiltered.length;
+
+  if (subCountPendingEl) subCountPendingEl.textContent = subPending;
+  if (subCountVerifiedEl) subCountVerifiedEl.textContent = subVerified;
+  if (subCountReportedEl) subCountReportedEl.textContent = subReported;
+  if (subCountAllEl) subCountAllEl.textContent = subAll;
+
+  // 4. Filter by sub-status tab
+  let finalFiltered = deptFiltered;
+  if (currentSubFilter === 'PENDING_REVIEW') {
+    finalFiltered = deptFiltered.filter(e => (e.verification_status || 'PENDING_REVIEW').toUpperCase() === 'PENDING_REVIEW');
+  } else if (currentSubFilter === 'VERIFIED') {
+    finalFiltered = deptFiltered.filter(e => (e.verification_status || '').toUpperCase() === 'VERIFIED');
+  } else if (currentSubFilter === 'REPORTED') {
+    finalFiltered = deptFiltered.filter(e => (e.report_status || '').toUpperCase() === 'SENT');
+  }
+
+  renderEventsTable(finalFiltered);
+  renderMapMarkers(finalFiltered);
+
+  if (mapEventCountBadge) {
+    mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
+  }
+}
+
+function selectDepartment(deptName) {
+  currentSelectedDepartment = deptName;
+  [deptCardRoad, deptCardTraffic, deptCardAll].forEach(c => {
+    if (c) c.classList.remove('active');
+  });
+  if (deptName === 'ROAD MAINTENANCE' && deptCardRoad) deptCardRoad.classList.add('active');
+  if (deptName === 'TRAFFIC' && deptCardTraffic) deptCardTraffic.classList.add('active');
+  if (deptName === 'ALL' && deptCardAll) deptCardAll.classList.add('active');
+
+  if (selectedDeptHeading) {
+    selectedDeptHeading.textContent = deptName === 'TRAFFIC' ? 'TRAFFIC MANAGEMENT' : (deptName === 'ALL' ? 'ALL INCIDENTS' : 'ROAD MAINTENANCE');
+  }
+
+  applyDepartmentFiltersAndRender();
+}
+
+function selectSubFilter(subName) {
+  currentSubFilter = subName;
+  if (deptStatusTabs) {
+    deptStatusTabs.querySelectorAll('.dept-tab').forEach(t => {
+      t.classList.toggle('active', t.getAttribute('data-sub') === subName);
+    });
+  }
+  applyDepartmentFiltersAndRender();
+}
+
 async function fetchAndRenderEvents() {
   try {
     const params = new URLSearchParams();
-    const cat = filterCategorySelect ? filterCategorySelect.value : 'all';
-    const dept = filterDepartmentSelect ? filterDepartmentSelect.value : 'all';
-    const risk = filterRiskSelect ? filterRiskSelect.value : 'all';
-    const prio = filterPrioritySelect ? filterPrioritySelect.value : 'all';
-    const stat = filterStatusSelect ? filterStatusSelect.value : 'all';
-    const repStat = filterReportStatusSelect ? filterReportStatusSelect.value : 'all';
+    params.append('verification_status', 'all');
+    params.append('include_inactive', 'true');
     const q = filterSearchInput ? filterSearchInput.value.trim() : '';
-
-    if (cat !== 'all') params.append('category', cat);
-    if (dept !== 'all') params.append('department', dept);
-    if (risk !== 'all') params.append('risk_level', risk);
-    if (prio !== 'all') params.append('priority', prio);
-    if (stat !== 'all') params.append('status', stat);
-    if (repStat !== 'all') params.append('report_status', repStat);
-    if (currentVerificationFilter && currentVerificationFilter !== 'all') {
-      params.append('verification_status', currentVerificationFilter);
-    } else if (currentVerificationFilter === 'all') {
-      params.append('verification_status', 'all');
-      params.append('include_inactive', 'true');
-    }
     if (q) params.append('search', q);
 
     const url = `/api/admin/events?${params.toString()}`;
@@ -437,12 +550,7 @@ async function fetchAndRenderEvents() {
     const data = await res.json();
     allEventsCache = data.events || [];
 
-    renderEventsTable(allEventsCache);
-    renderMapMarkers(allEventsCache);
-
-    if (mapEventCountBadge) {
-      mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
-    }
+    applyDepartmentFiltersAndRender();
   } catch (err) {
     console.error('[Admin Portal] Failed to fetch events:', err);
     renderEventsTable([]);
@@ -480,7 +588,8 @@ function renderMapMarkers(events) {
     const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, vStat);
     const marker = L.marker([lat, lon], { icon }).addTo(leafletMap);
 
-    const confPct = Math.round((evt.confidence || 0) * 100);
+    const confVal = typeof evt.confidence === 'number' ? evt.confidence : parseFloat(evt.confidence || 0);
+    const confPct = Math.round(confVal * 100);
     const dateFormatted = evt.created_at ? new Date(evt.created_at).toLocaleString() : 'N/A';
     const coordsFormatted = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
     
@@ -502,8 +611,30 @@ function renderMapMarkers(events) {
     const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
     const prio = (evt.priority || 'MEDIUM').toUpperCase();
 
+    // Visual confidence assessment text
+    let confText = `${confPct}% (Low Confidence)`;
+    if (confVal >= 0.90) confText = `${confPct}% (High Confidence - Auto-verified)`;
+    else if (confVal >= 0.60) confText = `${confPct}% (Moderate - Review Required)`;
+
+    const vMethodText = evt.verification_method || (vStat === 'VERIFIED' ? (confVal >= 0.90 ? 'AUTO_VERIFIED' : 'HUMAN_VERIFIED') : 'HUMAN_REVIEW_REQUIRED');
+
+    // Quick review actions in popup if pending
+    let popupReviewActions = '';
+    if (vStat === 'PENDING_REVIEW') {
+      popupReviewActions = `
+        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+          <button onclick="directVerifyEvent('${evt.event_id}')" style="flex: 1; padding: 6px 8px; background: #15803D; color: #ffffff; border: 1.5px solid #14532D; border-radius: 5px; font-size: 11px; font-weight: 800; cursor: pointer;" title="Confirm and verify this detection">
+            ✓ [ VERIFY ]
+          </button>
+          <button onclick="directRejectEvent('${evt.event_id}')" style="flex: 1; padding: 6px 8px; background: #FEE2E2; color: #991B1B; border: 1.5px solid #DC2626; border-radius: 5px; font-size: 11px; font-weight: 800; cursor: pointer;" title="Mark as false positive / discard">
+            ✕ [ REJECT ]
+          </button>
+        </div>
+      `;
+    }
+
     marker.bindPopup(`
-      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 230px; max-width: 280px; line-height: 1.45; color: #1E293B;">
+      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 240px; max-width: 290px; line-height: 1.45; color: #1E293B;">
         ${imgHtml}
         
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 4px;">
@@ -516,10 +647,14 @@ function renderMapMarkers(events) {
           </span>
         </div>
 
-        <div style="background: #F8FAFC; border: 1px solid rgba(30,41,59,0.18); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px;">
+        <div style="background: #F8FAFC; border: 1.5px solid rgba(30,41,59,0.2); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
             <span style="color: #64748B;">AI Confidence:</span>
-            <strong style="color: #15803D; font-weight: 800;">${confPct}%</strong>
+            <strong style="color: ${confVal >= 0.90 ? '#15803D' : (confVal >= 0.60 ? '#D97706' : '#64748B')}; font-weight: 800;">${confText}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+            <span style="color: #64748B;">Verification Method:</span>
+            <strong style="color: #0F172A; font-weight: 700;">${vMethodText}</strong>
           </div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
             <span style="color: #64748B;">Risk / Priority:</span>
@@ -537,6 +672,8 @@ function renderMapMarkers(events) {
           <div>🚌 <strong>Bus / Unit:</strong> ${evt.bus_id || 'BUS-101'}${evt.session_id ? ' (' + evt.session_id.substring(0, 10) + '...)' : ''}</div>
           <div>🏢 <strong>Department:</strong> ${evt.department || 'ROAD MAINTENANCE'}</div>
         </div>
+
+        ${popupReviewActions}
 
         <button onclick="selectEventById('${evt.event_id}')" style="width: 100%; padding: 7px 10px; background: #15803D; color: #ffffff; border: 1.5px solid #14532D; border-radius: 6px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 2px 5px rgba(21,128,61,0.25);">
           <span>🔍</span> [ VIEW FULL DETAILS ]
@@ -629,6 +766,7 @@ function renderEventsTable(events) {
       <td><span class="badge-dept">${evt.department || 'ROAD MAINTENANCE'}</span></td>
       <td>${reportBadgeHtml}</td>
       <td><span class="badge-status ${statClass}">${stat}</span></td>
+      <td><button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: var(--color-primary-border); color: var(--color-primary);">🔍 ${vStat === 'PENDING_REVIEW' ? 'Review' : 'View'}</button></td>
     `;
 
     tr.addEventListener('click', () => {
@@ -788,11 +926,62 @@ async function selectEventById(eventId, panMap = true) {
   detailPriorityBadge.textContent = `PRIORITY: ${prio}`;
   detailPriorityBadge.className = `badge badge-risk-${prio === 'HIGH' ? 'high' : 'medium'}`;
 
-  // Field Attributes (Preserves AI Confidence e.g. 91%)
+  // Field Attributes (Preserves AI Confidence e.g. 91% and separates Verification Status & Method)
   detailEvtId.textContent = evt.event_id || '--';
-  detailConf.textContent = `${Math.round((evt.confidence || 0) * 100)}%`;
+  
+  // Progress bar & clear confidence explanation
+  const confVal = typeof evt.confidence === 'number' ? evt.confidence : parseFloat(evt.confidence || 0);
+  const confPct = Math.round(confVal * 100);
+  if (confVal >= 0.90) {
+    detailConf.innerHTML = `
+      <div class="conf-indicator conf-high" title="AI Confidence: ${confPct}% (Auto-verified based on configured threshold ≥ 90%)">
+        <div class="conf-bar"><div class="conf-fill high" style="width: ${confPct}%"></div></div>
+        <span class="conf-text">🟢 ${confPct}% &bull; High Confidence</span>
+      </div>
+    `;
+  } else if (confVal >= 0.60) {
+    detailConf.innerHTML = `
+      <div class="conf-indicator conf-medium" title="AI Confidence: ${confPct}% (Supervisor review required: 60%–89.9%)">
+        <div class="conf-bar"><div class="conf-fill medium" style="width: ${confPct}%"></div></div>
+        <span class="conf-text">🟠 ${confPct}% &bull; Review Required</span>
+      </div>
+    `;
+  } else {
+    detailConf.innerHTML = `
+      <div class="conf-indicator conf-low" title="AI Confidence: ${confPct}% (Below 60% threshold — Auto-rejected)">
+        <div class="conf-bar"><div class="conf-fill low" style="width: ${confPct}%"></div></div>
+        <span class="conf-text">⚪ ${confPct}% &bull; Rejected</span>
+      </div>
+    `;
+  }
+
+  const detailVerifStatus = document.getElementById('detailVerifStatus');
+  const detailVerifMethod = document.getElementById('detailVerifMethod');
+  const vMethod = evt.verification_method || (vStat === 'VERIFIED' ? (confVal >= 0.90 ? 'AUTO_VERIFIED' : 'HUMAN_VERIFIED') : 'HUMAN_REVIEW_REQUIRED');
+  if (detailVerifStatus) {
+    detailVerifStatus.textContent = vStat;
+    detailVerifStatus.style.color = vStat === 'VERIFIED' ? '#15803D' : (vStat === 'REJECTED' ? '#64748B' : '#D97706');
+  }
+  if (detailVerifMethod) {
+    detailVerifMethod.textContent = vMethod;
+    detailVerifMethod.style.color = vMethod === 'AUTO_VERIFIED' || vMethod === 'HUMAN_VERIFIED' ? '#15803D' : '#D97706';
+  }
+
   detailProblem.textContent = evt.problem || evt.class_name || 'Pothole';
-  detailObservations.textContent = `${evt.observation_count || 1} frame(s)`;
+
+  // Audit explanation note
+  let auditNote = `${evt.observation_count || 1} frame(s)`;
+  if (vMethod === 'AUTO_VERIFIED') {
+    auditNote += ' &bull; Auto-verified based on configured confidence threshold (≥ 90%)';
+  } else if (vMethod === 'HUMAN_VERIFIED') {
+    auditNote += ` &bull; Human-verified by ${evt.verified_by || 'admin'}`;
+  } else if (vStat === 'PENDING_REVIEW') {
+    auditNote += ` &bull; Supervisor review required (${confPct}% confidence)`;
+  } else if (vStat === 'REJECTED') {
+    auditNote += ` &bull; Discarded (${evt.rejection_reason || 'Rejected by Admin'})`;
+  }
+  detailObservations.innerHTML = auditNote;
+
   detailDepartment.textContent = evt.department || 'ROAD MAINTENANCE';
   detailLat.textContent = evt.latitude ? evt.latitude.toFixed(6) : 'N/A';
   detailLon.textContent = evt.longitude ? evt.longitude.toFixed(6) : 'N/A';
@@ -847,11 +1036,11 @@ async function selectEventById(eventId, panMap = true) {
       sendReportBtn.style.opacity = '0.75';
       sendReportBtn.style.cursor = 'not-allowed';
     }
-    if (sendReportBtnText) sendReportBtnText.textContent = `✓ Report Dispatched to ${evt.department || 'Dept'} (${evt.report_id || 'SENT'})`;
+    if (sendReportBtnText) sendReportBtnText.textContent = `✓ REPORT SENT (${evt.report_id || 'Submitted through prototype workflow'})`;
   } else if (vStat !== 'VERIFIED' || !isActive) {
     if (reportLockNotice) {
       reportLockNotice.style.display = 'block';
-      reportLockNotice.innerHTML = `🔒 <strong>Dispatch Locked:</strong> Detection candidate status is <strong>${vStat}</strong>. Please evaluate and click <strong>[ VERIFY DETECTION ]</strong> above before forwarding to ${evt.department || 'the department'}.`;
+      reportLockNotice.innerHTML = `🔒 <strong>Dispatch Locked:</strong> Detection candidate status is <strong>${vStat}</strong>. Please evaluate and click <strong>[ VERIFY DETECTION ]</strong> above before viewing/sending report to ${evt.department || 'the department'}.`;
     }
     if (sendReportBtn) {
       sendReportBtn.disabled = true;
@@ -867,7 +1056,7 @@ async function selectEventById(eventId, panMap = true) {
       sendReportBtn.style.opacity = '1';
       sendReportBtn.style.cursor = 'pointer';
     }
-    if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+    if (sendReportBtnText) sendReportBtnText.textContent = `📄 VIEW REPORT`;
   }
 }
 
@@ -1004,6 +1193,73 @@ function updateSingleMapMarker(evt) {
 // Make selectEventById globally callable from Leaflet popup buttons
 window.selectEventById = selectEventById;
 
+// Direct verification / rejection handlers triggered from Leaflet map popups
+window.directVerifyEvent = async function(eventId) {
+  try {
+    const res = await fetch(`/api/admin/events/${eventId}/verify`, {
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const evt = allEventsCache.find(e => e.event_id === eventId);
+      if (evt) {
+        evt.verification_status = 'VERIFIED';
+        evt.verification_method = 'HUMAN_VERIFIED';
+        evt.is_active = true;
+        evt.verified_by = data.event?.verified_by || 'admin';
+        evt.verified_at = data.event?.verified_at || new Date().toISOString();
+        updateSingleMapMarker(evt);
+        renderEventsTable(allEventsCache);
+        if (selectedEventId === eventId) {
+          selectEventById(eventId, false);
+        }
+      }
+      await fetchStats();
+    } else {
+      alert(`Verification failed: ${data.error || 'Server error'}`);
+    }
+  } catch (err) {
+    console.error('directVerifyEvent error:', err);
+  }
+};
+
+window.directRejectEvent = async function(eventId) {
+  const reason = prompt('Please enter rejection reason (e.g. False positive, shadow, harmless crack):', 'False positive / Rejected by Admin');
+  if (reason === null) return; // User cancelled prompt
+
+  try {
+    const res = await fetch(`/api/admin/events/${eventId}/reject`, {
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const evt = allEventsCache.find(e => e.event_id === eventId);
+      if (evt) {
+        evt.verification_status = 'REJECTED';
+        evt.verification_method = 'HUMAN_REJECTED';
+        evt.is_active = false;
+        evt.rejection_reason = reason;
+        updateSingleMapMarker(evt);
+        if (currentVerificationFilter !== 'all' && currentVerificationFilter !== 'REJECTED') {
+          allEventsCache = allEventsCache.filter(e => e.event_id !== eventId);
+        }
+        renderEventsTable(allEventsCache);
+        if (selectedEventId === eventId) {
+          selectEventById(eventId, false);
+        }
+      }
+      await fetchStats();
+    } else {
+      alert(`Rejection failed: ${data.error || 'Server error'}`);
+    }
+  } catch (err) {
+    console.error('directRejectEvent error:', err);
+  }
+};
+
 async function resolveAddress(lat, lon) {
   const cacheKey = `${Number(lat).toFixed(4)},${Number(lon).toFixed(4)}`;
   if (clientAddressCache.has(cacheKey)) {
@@ -1091,6 +1347,26 @@ function setupSidebarNavigation() {
 // 9. FILTER LISTENERS
 // ==============================================================================
 function setupFilterListeners() {
+  // Top Horizontal Department Cards
+  if (deptCardRoad) {
+    deptCardRoad.addEventListener('click', () => selectDepartment('ROAD MAINTENANCE'));
+  }
+  if (deptCardTraffic) {
+    deptCardTraffic.addEventListener('click', () => selectDepartment('TRAFFIC'));
+  }
+  if (deptCardAll) {
+    deptCardAll.addEventListener('click', () => selectDepartment('ALL'));
+  }
+
+  // Department Sub-Filter Tabs
+  if (deptStatusTabs) {
+    deptStatusTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.dept-tab');
+      if (!btn) return;
+      selectSubFilter(btn.getAttribute('data-sub'));
+    });
+  }
+
   // Verification filter pills
   if (verificationFilterGroup) {
     verificationFilterGroup.addEventListener('click', (e) => {
@@ -1171,8 +1447,54 @@ function setupFilterListeners() {
 }
 
 // ==============================================================================
-// 9.1 DEPARTMENT REPORT DISPATCHER (With Confirmation Dialog)
+// 9.1 DEPARTMENT REPORT DISPATCHER (With Official Report Preview)
 // ==============================================================================
+function openReportPreviewModal(evt) {
+  if (!evt) return;
+
+  const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+  if (vStat !== 'VERIFIED' || evt.is_active === false) {
+    alert(`Cannot dispatch report: Detection candidate must be VERIFIED before reporting (current status: ${vStat}).`);
+    return;
+  }
+
+  // Destination department automatically determined
+  const destDept = isTrafficEvent(evt) ? 'TRAFFIC MANAGEMENT' : 'ROAD MAINTENANCE';
+  const probName = evt.problem || evt.class_name || 'Road Damage';
+  const prio = (evt.priority || 'HIGH').toUpperCase();
+  const confPct = Math.round((evt.confidence || 0) * 100);
+  const locStr = evt.address ? `${evt.address} (${Number(evt.latitude).toFixed(5)}, ${Number(evt.longitude).toFixed(5)})` : `${Number(evt.latitude).toFixed(5)}, ${Number(evt.longitude).toFixed(5)}`;
+  const dtStr = evt.created_at ? new Date(evt.created_at).toLocaleString() : new Date().toLocaleString();
+
+  if (confirmModalDept) confirmModalDept.textContent = destDept;
+  if (reportPreviewSubject) reportPreviewSubject.textContent = `[${prio} PRIORITY] ${probName} Incident Report — ${evt.event_id}`;
+  if (confirmModalEventId) confirmModalEventId.textContent = evt.event_id;
+  if (confirmModalProblem) confirmModalProblem.textContent = `${probName} (${evt.category || 'Urban Infrastructure'})`;
+  if (confirmModalConf) confirmModalConf.textContent = `${confPct}% (Auto-verified based on configured confidence threshold)`;
+  if (reportPreviewPriority) reportPreviewPriority.textContent = prio;
+  if (reportPreviewTimestamp) reportPreviewTimestamp.textContent = dtStr;
+  if (reportPreviewLocation) reportPreviewLocation.textContent = locStr;
+
+  if (evt.evidence_image_url && reportPreviewEvidenceImg) {
+    reportPreviewEvidenceImg.src = evt.evidence_image_url;
+    reportPreviewEvidenceImg.style.display = 'block';
+    if (reportPreviewEvidencePlaceholder) reportPreviewEvidencePlaceholder.style.display = 'none';
+  } else {
+    if (reportPreviewEvidenceImg) reportPreviewEvidenceImg.style.display = 'none';
+    if (reportPreviewEvidencePlaceholder) reportPreviewEvidencePlaceholder.style.display = 'block';
+  }
+
+  if (reportPreviewDesc) {
+    if (destDept === 'TRAFFIC MANAGEMENT') {
+      reportPreviewDesc.textContent = `A traffic hazard / congestion anomaly (${probName}) was detected by the mobile urban intelligence system at ${locStr}. Verified for prompt traffic authority response.`;
+    } else {
+      reportPreviewDesc.textContent = `A road surface defect (${probName}) was detected by the mobile urban intelligence system at ${locStr}. Verified by command portal review for municipal road maintenance inspection and repair.`;
+    }
+  }
+
+  if (confirmReportModal) confirmReportModal.style.display = 'flex';
+}
+
 function setupReportSender() {
   if (!sendReportBtn) return;
 
@@ -1181,23 +1503,12 @@ function setupReportSender() {
     const evt = allEventsCache.find(e => e.event_id === selectedEventId);
     if (!evt) return;
 
-    const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
-    if (vStat !== 'VERIFIED' || evt.is_active === false) {
-      alert(`Cannot dispatch report: Detection candidate must be VERIFIED before reporting (current status: ${vStat}).`);
-      return;
-    }
-
     if (evt.report_status === 'SENT') {
       alert(`Report was already dispatched to ${evt.department || 'department'} (ID: ${evt.report_id || 'SENT'})`);
       return;
     }
 
-    // Open supervisor confirmation modal
-    if (confirmModalEventId) confirmModalEventId.textContent = evt.event_id;
-    if (confirmModalProblem) confirmModalProblem.textContent = evt.problem || evt.class_name || 'Pothole';
-    if (confirmModalConf) confirmModalConf.textContent = `${Math.round((evt.confidence || 0) * 100)}%`;
-    if (confirmModalDept) confirmModalDept.textContent = evt.department || 'ROAD MAINTENANCE';
-    if (confirmReportModal) confirmReportModal.style.display = 'flex';
+    openReportPreviewModal(evt);
   });
 
   if (cancelReportBtn) {

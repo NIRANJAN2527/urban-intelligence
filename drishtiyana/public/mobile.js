@@ -141,7 +141,7 @@ function initSocket() {
 async function startCamera() {
   if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
     showAlert(
-      '⚠️ Mobile camera & GPS require HTTPS! Please access this page with https:// (e.g., https://' + location.hostname + ':3001/mobile) and tap "Advanced -> Proceed".',
+      '⚠️ Mobile camera & GPS require a trusted HTTPS connection! If needed, install the local CA certificate from http://' + location.hostname + ':3000/ca.crt to ensure trusted access.',
       'warning'
     );
   }

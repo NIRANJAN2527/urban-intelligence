@@ -38,7 +38,7 @@ async function runTests() {
     session_id: `SESSION-VERIF-TEST-${now}`,
     bus_id: 'BUS-101',
     class_name: 'Pothole',
-    confidence: 0.912, // 91.2% confidence preserved
+    confidence: 0.782, // 78.2% review range confidence
     latitude: 17.385044,
     longitude: 78.486671,
     risk_score: 82,
@@ -67,7 +67,7 @@ async function runTests() {
   assert(foundCandidate, 'Candidate event must be present in PENDING_REVIEW list');
   assert.strictEqual(foundCandidate.verification_status, 'PENDING_REVIEW', 'verification_status must be PENDING_REVIEW');
   assert.strictEqual(foundCandidate.is_active, true, 'is_active must be true');
-  assert.strictEqual(foundCandidate.confidence, 0.912, 'Original AI confidence 91.2% must be preserved');
+  assert.strictEqual(foundCandidate.confidence, 0.782, 'Original AI confidence 78.2% must be preserved');
   console.log(`   ✅ Event is in PENDING_REVIEW state with confidence ${(foundCandidate.confidence * 100).toFixed(1)}%.\n`);
 
   // 4. Locked Reporting Guard: Try sending report on PENDING_REVIEW event
