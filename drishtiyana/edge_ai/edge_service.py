@@ -437,7 +437,8 @@ async def process_video_endpoint(
     bus_id: str = Form("BUS-101"),
     camera_id: str = Form("CAM-01"),
     video_source: Optional[str] = Form(None),
-    frame_step: int = Form(1)
+    frame_step: int = Form(2),
+    background: bool = Form(False)
 ):
     """
     Uploaded Video Timestamp Synchronization & AI Pipeline Endpoint:
@@ -471,30 +472,44 @@ async def process_video_endpoint(
     if not target_gps_input:
         raise HTTPException(status_code=400, detail="GPS dataset (CSV or JSON string/file) is required.")
 
+    def run_pipeline():
+        try:
+            return process_uploaded_video(
+                video_path=target_video_path,
+                gps_source=target_gps_input,
+                session_id=session_id,
+                bus_id=bus_id,
+                camera_id=camera_id,
+                video_source=video_source or os.path.basename(target_video_path),
+                detector=detector,
+                redis_tracker=redis_tracker,
+                node_backend_url=NODE_BACKEND_URL,
+                dispatch_to_server=True,
+                frame_step=max(1, frame_step)
+            )
+        finally:
+            if temp_video_path and os.path.exists(temp_video_path):
+                try:
+                    os.remove(temp_video_path)
+                except Exception:
+                    pass
+
+    if background:
+        bg_thread = threading.Thread(target=run_pipeline, daemon=True)
+        bg_thread.start()
+        return JSONResponse(content={
+            "success": True,
+            "status": "PROCESSING_STARTED",
+            "session_id": session_id,
+            "message": "Background video processing initiated"
+        })
+
     try:
-        result = process_uploaded_video(
-            video_path=target_video_path,
-            gps_source=target_gps_input,
-            session_id=session_id,
-            bus_id=bus_id,
-            camera_id=camera_id,
-            video_source=video_source or os.path.basename(target_video_path),
-            detector=detector,
-            redis_tracker=redis_tracker,
-            node_backend_url=NODE_BACKEND_URL,
-            dispatch_to_server=True,
-            frame_step=max(1, frame_step)
-        )
+        result = run_pipeline()
         return JSONResponse(content=result)
     except Exception as e:
         print(f"[Process Video Error] {e}")
         raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
-    finally:
-        if temp_video_path and os.path.exists(temp_video_path):
-            try:
-                os.remove(temp_video_path)
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":

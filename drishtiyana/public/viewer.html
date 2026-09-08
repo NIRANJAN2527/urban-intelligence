@@ -512,6 +512,66 @@
           </button>
         </div>
 
+        <!-- Incremental AI Video Processing Progress Card -->
+        <div id="uploadAiProgressCard" class="edge-ai-card" style="display: none; margin-top: 1.25rem; border-color: rgba(6, 182, 212, 0.4);">
+          <div class="edge-ai-header">
+            <div class="edge-ai-title-group">
+              <div class="edge-ai-icon" style="background: rgba(6, 182, 212, 0.15); color: var(--color-primary);">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+                </svg>
+              </div>
+              <div>
+                <h3 class="edge-ai-title" id="uploadAiProgressTitle">AI VIDEO PROCESSING & TIMESTAMP SYNC</h3>
+                <p class="edge-ai-desc" id="uploadAiProgressSubtitle">Synchronizing frame timestamps with GPS &bull; Running YOLOv8 pothole detection &bull; 10m duplicate protection</p>
+              </div>
+            </div>
+            <div id="uploadAiStatusBadge" class="badge badge-live">
+              <span class="status-dot active" id="uploadAiStatusDot"></span>
+              <span id="uploadAiStatusBadgeText">PROCESSING</span>
+            </div>
+          </div>
+
+          <!-- Progress Bar Track -->
+          <div style="margin-top: 1rem;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.4rem;">
+              <span id="uploadAiProgressLabel" style="color: var(--color-primary); font-weight: 600;">Processing Frames...</span>
+              <span id="uploadAiProgressPercent" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-primary);">0.0%</span>
+            </div>
+            <div class="progress-track" style="height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden;">
+              <div class="progress-fill" id="uploadAiProgressFill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #06b6d4, #10b981); transition: width 0.2s ease;"></div>
+            </div>
+          </div>
+
+          <!-- Processing Telemetry Metrics Grid -->
+          <div class="telemetry-grid" style="margin-top: 1rem;">
+            <div class="telemetry-item">
+              <span class="telemetry-label">FRAMES PROCESSED</span>
+              <span class="telemetry-val" id="uploadAiFramesVal" style="color: var(--color-primary);">0 / 0</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">ELAPSED TIME</span>
+              <span class="telemetry-val" id="uploadAiElapsedVal">0.0s</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">CURRENT GPS</span>
+              <span class="telemetry-val" id="uploadAiGpsVal" style="font-size: 0.85rem;">--</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">POTHOLES DETECTED</span>
+              <span class="telemetry-val" id="uploadAiDetectionsVal" style="color: #f59e0b;">0</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">NEW EVENTS (&gt;10m)</span>
+              <span class="telemetry-val" id="uploadAiCreatedVal" style="color: #10b981;">0</span>
+            </div>
+            <div class="telemetry-item">
+              <span class="telemetry-label">MERGED / UPDATED (&lt;10m)</span>
+              <span class="telemetry-val" id="uploadAiUpdatedVal" style="color: #06b6d4;">0</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
     </div>

@@ -268,14 +268,16 @@ def dispatch_finalized_event_to_backend(
     try:
         resp = requests.post(f"{node_backend_url}/api/edge/events", data=data, files=files, timeout=timeout_sec)
         if resp.status_code in [200, 201]:
-            print(f"[Upload Pipeline -> Backend] Event persisted: {event_id} | GPS: ({data['latitude']}, {data['longitude']}) | Conf: {float(data['confidence']):.2f}")
-            return True
+            resp_json = resp.json()
+            action = resp_json.get("action", "CREATED")
+            print(f"[Upload Pipeline -> Backend] Event processed ({action}): {event_id} | GPS: ({data['latitude']}, {data['longitude']}) | Conf: {float(data['confidence']):.2f}")
+            return {"success": True, "action": action, "data": resp_json}
         else:
             print(f"[Upload Pipeline -> Backend Warning] Backend responded {resp.status_code} for {event_id}")
-            return False
+            return {"success": False, "action": "ERROR"}
     except Exception as err:
         print(f"[Upload Pipeline -> Backend Error] Failed to dispatch {event_id}: {err}")
-        return False
+        return {"success": False, "action": "ERROR", "error": str(err)}
 
 
 # ==============================================================================
@@ -294,7 +296,7 @@ def process_uploaded_video(
     node_backend_url: str = "http://127.0.0.1:3000",
     dispatch_to_server: bool = True,
     progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
-    frame_step: int = 1
+    frame_step: int = 2
 ) -> Dict[str, Any]:
     """
     Executes the complete 7-step Timestamp Synchronization and Pothole AI Pipeline
@@ -314,6 +316,7 @@ def process_uploaded_video(
     print(f" [Uploaded Video Sync] Starting Processing")
     print(f" Video: {video_path}")
     print(f" Session: {session_id} | Bus: {bus_id}")
+    print(f" Config: Frame Step={frame_step} (PROCESS_EVERY_N_FRAMES={frame_step})")
     print("=======================================================")
 
     gps_records = parse_gps_source(gps_source)
@@ -352,9 +355,12 @@ def process_uploaded_video(
     # Tracking state
     processed_frames = 0
     detections_found = 0
+    events_created = 0
+    events_updated = 0
     finalized_events: List[Dict[str, Any]] = []
     frame_index = 0
     t_pipeline_start = time.time()
+    last_progress_report = 0.0
 
     # --------------------------------------------------------------------------
     # STEPS 3 - 7: Sequential Frame Processing & Timestamp Sync
@@ -368,7 +374,7 @@ def process_uploaded_video(
             current_frame_id = frame_index
             frame_index += 1
 
-            # Optional frame stepping (default 1 = every single frame)
+            # Configurable frame stepping (PROCESS_EVERY_N_FRAMES = 2 doubles speed)
             if frame_step > 1 and (current_frame_id % frame_step != 0):
                 continue
 
@@ -419,21 +425,48 @@ def process_uploaded_video(
                     exp["video_source"] = video_source
                     finalized_events.append(exp)
                     if dispatch_to_server:
-                        dispatch_finalized_event_to_backend(exp, node_backend_url)
+                        disp_res = dispatch_finalized_event_to_backend(exp, node_backend_url)
+                        if isinstance(disp_res, dict) and disp_res.get("action") == "UPDATED":
+                            events_updated += 1
+                        elif isinstance(disp_res, dict) and disp_res.get("action") == "CREATED":
+                            events_created += 1
 
             processed_frames += 1
 
-            # Progress callback if registered
-            if progress_callback and (processed_frames % 10 == 0 or processed_frames == total_frames):
-                stats = {
+            # Periodic progress reporting (every ~500ms or last frame)
+            now = time.time()
+            if (now - last_progress_report >= 0.5) or (current_frame_id >= total_frames - 1):
+                last_progress_report = now
+                pct = round((float(current_frame_id + 1) / max(total_frames, 1)) * 100.0, 1)
+                progress_stats = {
+                    "session_id": session_id,
+                    "percent": min(100.0, pct),
                     "processed_frames": processed_frames,
                     "total_frames": total_frames,
-                    "elapsed_video_sec": elapsed_seconds,
-                    "current_timestamp": frame_timestamp_iso,
-                    "detections_count": detections_found,
-                    "finalized_count": len(finalized_events)
+                    "current_frame": current_frame_id,
+                    "elapsed_seconds": round(time.time() - t_pipeline_start, 1),
+                    "current_gps": {
+                        "latitude": gps_match.get("latitude") if gps_match else None,
+                        "longitude": gps_match.get("longitude") if gps_match else None,
+                        "timestamp": gps_match.get("gps_timestamp") if gps_match else None
+                    },
+                    "potholes_found": detections_found,
+                    "events_created": events_created,
+                    "events_updated": events_updated,
+                    "status": "PROCESSING"
                 }
-                progress_callback(processed_frames, total_frames, stats)
+
+                if progress_callback:
+                    try:
+                        progress_callback(processed_frames, total_frames, progress_stats)
+                    except Exception:
+                        pass
+
+                if dispatch_to_server:
+                    try:
+                        requests.post(f"{node_backend_url}/api/edge/video-progress", json=progress_stats, timeout=0.5)
+                    except Exception:
+                        pass
 
     finally:
         cap.release()
@@ -451,7 +484,11 @@ def process_uploaded_video(
             rem["video_source"] = video_source
             finalized_events.append(rem)
             if dispatch_to_server:
-                dispatch_finalized_event_to_backend(rem, node_backend_url)
+                disp_res = dispatch_finalized_event_to_backend(rem, node_backend_url)
+                if isinstance(disp_res, dict) and disp_res.get("action") == "UPDATED":
+                    events_updated += 1
+                elif isinstance(disp_res, dict) and disp_res.get("action") == "CREATED":
+                    events_created += 1
 
     total_processing_time = round(time.time() - t_pipeline_start, 2)
     avg_fps = round(processed_frames / max(total_processing_time, 0.001), 1)
@@ -460,9 +497,29 @@ def process_uploaded_video(
     print(f" [Uploaded Video Sync] Processing Complete!")
     print(f" Frames Processed: {processed_frames}/{total_frames} ({avg_fps} FPS)")
     print(f" Detections Found: {detections_found}")
-    print(f" Finalized Pothole Events: {len(finalized_events)}")
+    print(f" Finalized Pothole Events: {len(finalized_events)} (Created: {events_created}, Updated: {events_updated})")
     print(f" Time Elapsed: {total_processing_time}s")
     print("=======================================================\n")
+
+    # Send final 100% completion progress
+    if dispatch_to_server:
+        final_progress = {
+            "session_id": session_id,
+            "status": "COMPLETED",
+            "percent": 100.0,
+            "processed_frames": processed_frames,
+            "total_frames": total_frames,
+            "elapsed_video_sec": total_processing_time,
+            "potholes_found": detections_found,
+            "events_created": events_created,
+            "events_updated": events_updated,
+            "average_fps": avg_fps,
+            "message": "Video processing completed successfully"
+        }
+        try:
+            requests.post(f"{node_backend_url}/api/edge/video-progress", json=final_progress, timeout=1.0)
+        except Exception:
+            pass
 
     return {
         "success": True,
@@ -475,6 +532,8 @@ def process_uploaded_video(
         "processed_frames": processed_frames,
         "detections_found": detections_found,
         "finalized_events_count": len(finalized_events),
+        "events_created": events_created,
+        "events_updated": events_updated,
         "finalized_events": finalized_events,
         "processing_time_seconds": total_processing_time,
         "average_fps": avg_fps

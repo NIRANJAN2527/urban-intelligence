@@ -278,6 +278,9 @@ app.get('/api/status', (req, res) => {
 // In-memory registry of uploaded video sessions
 const uploadedSessions = new Map();
 
+// In-memory registry of active background video processing jobs and progress
+const videoJobProgress = new Map();
+
 // POST /api/upload-session: Handles Video + GPS File Upload
 app.post('/api/upload-session', upload.fields([
   { name: 'video', maxCount: 1 },
@@ -485,43 +488,133 @@ app.post('/api/process-session/:sessionId', async (req, res) => {
     return res.status(400).json({ error: `No GPS telemetry records available for session ${sessionId}` });
   }
 
-  console.log(`\n[Upload Mode AI Pipeline] Starting timestamp-synchronized Edge AI execution for session: ${sessionId}`);
+  const frameStep = req.body.frame_step ? String(req.body.frame_step) : (process.env.PROCESS_EVERY_N_FRAMES || '2');
+
+  console.log(`\n[Upload Mode AI Pipeline] Starting background timestamp-synchronized Edge AI execution for session: ${sessionId}`);
   console.log(`  Video File: ${videoPath}`);
   console.log(`  GPS Records: ${gpsRecords.length}`);
+  console.log(`  Frame Step: ${frameStep}`);
 
-  try {
-    const edgeFormData = new URLSearchParams();
-    edgeFormData.append('video_path', videoPath);
-    edgeFormData.append('gps_source', JSON.stringify(gpsRecords));
-    edgeFormData.append('session_id', sessionId);
-    edgeFormData.append('bus_id', busId);
-    edgeFormData.append('video_source', videoSource);
-    edgeFormData.append('frame_step', req.body.frame_step ? String(req.body.frame_step) : '1');
+  // 1. Initialize or reset job progress for incremental streaming
+  const initialProgress = {
+    session_id: sessionId,
+    status: 'PROCESSING',
+    percent: 0,
+    processed_frames: 0,
+    total_frames: 0,
+    elapsed_video_sec: 0,
+    current_timestamp: session ? session.video_started_at : null,
+    current_gps: gpsRecords[0] || null,
+    potholes_found: 0,
+    events_created: 0,
+    events_updated: 0,
+    fps: 0,
+    message: 'Starting background processing...',
+    started_at: Date.now()
+  };
+  videoJobProgress.set(sessionId, initialProgress);
+  io.emit('video-processing-progress', initialProgress);
 
-    const edgeResp = await fetch('http://127.0.0.1:5001/api/edge/process-video', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: edgeFormData.toString()
-    });
+  // 2. Respond immediately to the frontend without waiting for video processing to finish
+  res.status(200).json({
+    success: true,
+    status: 'PROCESSING_STARTED',
+    session_id: sessionId,
+    message: 'Background video processing initiated successfully',
+    initial_progress: initialProgress
+  });
 
-    if (!edgeResp.ok) {
-      const errorText = await edgeResp.text();
-      return res.status(edgeResp.status).json({ error: `Edge AI processing error: ${errorText}` });
+  // 3. Asynchronously trigger Edge AI microservice in background
+  (async () => {
+    try {
+      const edgeFormData = new URLSearchParams();
+      edgeFormData.append('video_path', videoPath);
+      edgeFormData.append('gps_source', JSON.stringify(gpsRecords));
+      edgeFormData.append('session_id', sessionId);
+      edgeFormData.append('bus_id', busId);
+      edgeFormData.append('video_source', videoSource);
+      edgeFormData.append('frame_step', frameStep);
+
+      const edgeResp = await fetch('http://127.0.0.1:5001/api/edge/process-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: edgeFormData.toString()
+      });
+
+      if (!edgeResp.ok) {
+        const errorText = await edgeResp.text();
+        console.error(`[Upload Mode AI Error] Background processing failed: ${errorText}`);
+        const errProgress = {
+          session_id: sessionId,
+          status: 'ERROR',
+          error: errorText,
+          message: 'Video processing encountered an error'
+        };
+        videoJobProgress.set(sessionId, errProgress);
+        io.emit('video-processing-progress', errProgress);
+        return;
+      }
+
+      const edgeResult = await edgeResp.json();
+      console.log(`[Upload Mode AI Complete] Session: ${sessionId} | Detections: ${edgeResult.detections_found} | Finalized: ${edgeResult.finalized_events_count}`);
+
+      const completedProgress = {
+        session_id: sessionId,
+        status: 'COMPLETED',
+        percent: 100,
+        processed_frames: edgeResult.processed_frames || 0,
+        total_frames: edgeResult.total_frames || 0,
+        elapsed_video_sec: edgeResult.processing_time_seconds || 0,
+        potholes_found: edgeResult.detections_found || 0,
+        events_created: (videoJobProgress.get(sessionId)?.events_created) || edgeResult.finalized_events_count || 0,
+        events_updated: (videoJobProgress.get(sessionId)?.events_updated) || 0,
+        average_fps: edgeResult.average_fps || 0,
+        message: 'Video processing completed successfully',
+        completed_at: Date.now()
+      };
+      videoJobProgress.set(sessionId, completedProgress);
+      io.emit('video-processing-progress', completedProgress);
+    } catch (bgErr) {
+      console.error(`[Upload Mode AI Exception] Background job failed for ${sessionId}:`, bgErr.message);
+      const failProgress = {
+        session_id: sessionId,
+        status: 'ERROR',
+        error: bgErr.message,
+        message: 'Background video processing failed'
+      };
+      videoJobProgress.set(sessionId, failProgress);
+      io.emit('video-processing-progress', failProgress);
     }
+  })();
+});
 
-    const edgeResult = await edgeResp.json();
-    console.log(`[Upload Mode AI Pipeline Complete] Session: ${sessionId} | Detections: ${edgeResult.detections_found} | Finalized Events: ${edgeResult.finalized_events_count}`);
+// POST /api/edge/video-progress: Endpoint for Python Edge AI to report periodic progress
+app.post('/api/edge/video-progress', (req, res) => {
+  const { session_id } = req.body;
+  if (!session_id) return res.status(400).json({ error: 'Missing session_id' });
 
-    return res.status(200).json({
-      success: true,
-      session_id: sessionId,
-      status: 'PROCESSING_COMPLETE',
-      ...edgeResult
-    });
-  } catch (err) {
-    console.error(`[Upload Mode AI Pipeline Error]`, err);
-    return res.status(500).json({ error: `Failed to trigger Edge AI video processing: ${err.message}` });
+  const existing = videoJobProgress.get(session_id) || {};
+  const merged = {
+    ...existing,
+    ...req.body,
+    events_created: existing.events_created || 0,
+    events_updated: existing.events_updated || 0,
+    updated_at: Date.now()
+  };
+
+  videoJobProgress.set(session_id, merged);
+  io.emit('video-processing-progress', merged);
+  return res.json({ success: true });
+});
+
+// GET /api/session-progress/:sessionId: Lightweight polling endpoint for frontend
+app.get('/api/session-progress/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+  const progress = videoJobProgress.get(sessionId);
+  if (!progress) {
+    return res.status(404).json({ status: 'UNKNOWN', error: `No active progress for session ${sessionId}` });
   }
+  return res.json({ success: true, ...progress });
 });
 
 // GET /api/session-gps/:sessionId: Retrieve GPS points for session
@@ -662,6 +755,27 @@ async function reverseGeocode(lat, lon) {
 // In-memory set for candidate event deduplication and idempotency
 const processedCandidateEvents = new Set();
 
+// 10-meter GPS proximity threshold for duplicate pothole clustering
+const DUPLICATE_DISTANCE_METERS = 10.0;
+
+/**
+ * Calculate Great-Circle distance (in meters) between two GPS points using the Haversine formula
+ */
+function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+  if (lat1 === null || lon1 === null || lat2 === null || lon2 === null ||
+      isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) {
+    return Infinity;
+  }
+  const R = 6371000; // Earth radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 // POST /api/edge/events: Receives finalized pothole detection event with correlated GPS & evidence image
 app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req, res) => {
   try {
@@ -698,17 +812,22 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     const dedupeKey = `${session_id || 'UNKNOWN'}:${candidate_id || event_id}`;
     if (dedupeKey && processedCandidateEvents.has(dedupeKey)) {
       console.log(`[Server Idempotency] Duplicate candidate event rejected: ${dedupeKey}`);
+      if (req.file && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
       return res.status(200).json({
         success: true,
         duplicate: true,
+        action: 'RETAINED',
         event_id: event_id || dedupeKey,
         candidate_id: candidate_id || null,
         message: 'Candidate event has already been finalized and recorded.'
       });
     }
-    if (dedupeKey) {
-      processedCandidateEvents.add(dedupeKey);
-    }
+
+    const newLat = latitude && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null;
+    const newLon = longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null;
+    const newConf = confidence && !isNaN(parseFloat(confidence)) ? parseFloat(confidence) : 0.0;
 
     // Determine deterministic risk score, level, and priority
     let parsedRiskScore = risk_score !== undefined && !isNaN(parseInt(risk_score, 10)) ? parseInt(risk_score, 10) : null;
@@ -716,7 +835,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     let parsedPriority = priority || null;
 
     if (parsedRiskScore === null) {
-      const confVal = confidence ? parseFloat(confidence) : 0.85;
+      const confVal = newConf || 0.85;
       const obsVal = observation_count ? parseInt(observation_count, 10) : 1;
       const w = (bbox_x2 && bbox_x1) ? parseInt(bbox_x2, 10) - parseInt(bbox_x1, 10) : 120;
       const h = (bbox_y2 && bbox_y1) ? parseInt(bbox_y2, 10) - parseInt(bbox_y1, 10) : 90;
@@ -766,6 +885,130 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       }
     }
 
+    // ==============================================================================
+    // GPS DUPLICATE PROTECTION: Merging detections of same pothole within 10 meters
+    // ==============================================================================
+    let duplicateTarget = null;
+    let minDistance = Infinity;
+
+    if (newLat !== null && newLon !== null && session_id) {
+      const incomingClass = (class_name || 'pothole').toLowerCase();
+      for (const existing of inMemoryEvents.values()) {
+        if (existing.session_id === session_id) {
+          const existingClass = (existing.class_name || 'pothole').toLowerCase();
+          const sameCategory = (existingClass === incomingClass) ||
+            (existingClass.includes('pothole') && incomingClass.includes('pothole'));
+          if (sameCategory && existing.latitude !== null && existing.longitude !== null) {
+            const dist = haversineDistanceMeters(existing.latitude, existing.longitude, newLat, newLon);
+            if (dist < DUPLICATE_DISTANCE_METERS && dist < minDistance) {
+              minDistance = dist;
+              duplicateTarget = existing;
+            }
+          }
+        }
+      }
+    }
+
+    if (duplicateTarget) {
+      if (dedupeKey) processedCandidateEvents.add(dedupeKey);
+
+      const oldConf = duplicateTarget.confidence || 0.0;
+      if (newConf > oldConf) {
+        // HIGHER CONFIDENCE: Update existing event in-place
+        console.log(`[GPS Duplicate Protection] Duplicate detected within ${minDistance.toFixed(1)}m. Updating event ${duplicateTarget.event_id} with higher confidence ${(newConf * 100).toFixed(1)}% > ${(oldConf * 100).toFixed(1)}%`);
+
+        // If old evidence file exists and is superseded by new image, remove old file from disk
+        if (evidenceImageUrl && duplicateTarget.evidence_image_url && duplicateTarget.evidence_image_url !== evidenceImageUrl) {
+          const cleanOldPath = duplicateTarget.evidence_image_url.startsWith('/') ? duplicateTarget.evidence_image_url.slice(1) : duplicateTarget.evidence_image_url;
+          const oldFilePath = path.join(__dirname, cleanOldPath);
+          if (fs.existsSync(oldFilePath)) {
+            try {
+              fs.unlinkSync(oldFilePath);
+              console.log(`[Evidence Cleanup] Removed superseded lower-confidence image: ${duplicateTarget.evidence_image_url}`);
+            } catch (_) {}
+          }
+          duplicateTarget.evidence_image_url = evidenceImageUrl;
+        }
+
+        duplicateTarget.confidence = newConf;
+        duplicateTarget.latitude = newLat;
+        duplicateTarget.longitude = newLon;
+        if (gps_timestamp) duplicateTarget.gps_timestamp = gps_timestamp;
+        if (gps_accuracy && !isNaN(parseFloat(gps_accuracy))) duplicateTarget.gps_accuracy = parseFloat(gps_accuracy);
+        if (timestamp_difference_ms && !isNaN(parseInt(timestamp_difference_ms, 10))) duplicateTarget.timestamp_difference_ms = parseInt(timestamp_difference_ms, 10);
+        if (gps_match_status) duplicateTarget.gps_match_status = gps_match_status;
+        if (frame_id) duplicateTarget.frame_id = parseInt(frame_id, 10);
+        if (video_timestamp) duplicateTarget.video_timestamp = video_timestamp;
+        duplicateTarget.processing_timestamp = processing_timestamp || new Date().toISOString();
+        duplicateTarget.observation_count = (duplicateTarget.observation_count || 1) + (observation_count ? parseInt(observation_count, 10) : 1);
+        if (bbox_x1) duplicateTarget.bbox_x1 = parseInt(bbox_x1, 10);
+        if (bbox_y1) duplicateTarget.bbox_y1 = parseInt(bbox_y1, 10);
+        if (bbox_x2) duplicateTarget.bbox_x2 = parseInt(bbox_x2, 10);
+        if (bbox_y2) duplicateTarget.bbox_y2 = parseInt(bbox_y2, 10);
+
+        if (parsedRiskScore !== null && parsedRiskScore > (duplicateTarget.risk_score || 0)) {
+          duplicateTarget.risk_score = parsedRiskScore;
+          duplicateTarget.risk_level = parsedRiskLevel;
+          duplicateTarget.priority = parsedPriority;
+        }
+
+        // Persist in Supabase
+        if (supabase.isSupabaseConfigured()) {
+          await supabase.insertPotholeEvent(duplicateTarget);
+        }
+
+        // Update videoJobProgress counters
+        const job = videoJobProgress.get(session_id);
+        if (job) {
+          job.events_updated = (job.events_updated || 0) + 1;
+        }
+
+        // Broadcast update via WebSocket
+        io.emit('edge-pothole-updated', duplicateTarget);
+        io.emit('edge-event-detected', duplicateTarget);
+
+        return res.status(200).json({
+          success: true,
+          action: 'UPDATED',
+          duplicate: true,
+          event_id: duplicateTarget.event_id,
+          candidate_id: candidate_id || null,
+          confidence: duplicateTarget.confidence,
+          distance_meters: Math.round(minDistance * 10) / 10,
+          evidence_image_url: duplicateTarget.evidence_image_url,
+          message: `In-place updated existing event with higher confidence (${(newConf * 100).toFixed(1)}% > ${(oldConf * 100).toFixed(1)}%)`
+        });
+      } else {
+        // LOWER OR EQUAL CONFIDENCE: Keep existing higher confidence, drop candidate
+        console.log(`[GPS Duplicate Protection] Duplicate detected within ${minDistance.toFixed(1)}m. Retained existing event ${duplicateTarget.event_id} (${(oldConf * 100).toFixed(1)}% >= ${(newConf * 100).toFixed(1)}%)`);
+
+        // Clean up newly uploaded image file so duplicate evidence is not kept
+        if (req.file && fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch (_) {}
+        }
+
+        duplicateTarget.observation_count = (duplicateTarget.observation_count || 1) + 1;
+
+        return res.status(200).json({
+          success: true,
+          action: 'RETAINED',
+          duplicate: true,
+          event_id: duplicateTarget.event_id,
+          candidate_id: candidate_id || null,
+          confidence: duplicateTarget.confidence,
+          distance_meters: Math.round(minDistance * 10) / 10,
+          message: `Retained existing event with higher confidence (${(oldConf * 100).toFixed(1)}% >= ${(newConf * 100).toFixed(1)}%)`
+        });
+      }
+    }
+
+    // ==============================================================================
+    // NEW UNIQUE EVENT CREATION
+    // ==============================================================================
+    if (dedupeKey) {
+      processedCandidateEvents.add(dedupeKey);
+    }
+
     const taxonomy = resolveEventTaxonomy(class_name);
 
     const eventRecord = {
@@ -787,25 +1030,31 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       frame_id: frame_id ? parseInt(frame_id, 10) : null,
       video_timestamp: video_timestamp || null,
       processing_timestamp: processing_timestamp || new Date().toISOString(),
-      confidence: confidence ? parseFloat(confidence) : 0.0,
+      confidence: newConf,
       class_name: class_name || taxonomy.problem,
       bbox_x1: bbox_x1 ? parseInt(bbox_x1, 10) : null,
       bbox_y1: bbox_y1 ? parseInt(bbox_y1, 10) : null,
       bbox_x2: bbox_x2 ? parseInt(bbox_x2, 10) : null,
       bbox_y2: bbox_y2 ? parseInt(bbox_y2, 10) : null,
-      latitude: latitude && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null,
-      longitude: longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null,
+      latitude: newLat,
+      longitude: newLon,
       gps_timestamp: gps_timestamp || null,
       gps_accuracy: gps_accuracy && !isNaN(parseFloat(gps_accuracy)) ? parseFloat(gps_accuracy) : null,
       timestamp_difference_ms: timestamp_difference_ms && !isNaN(parseInt(timestamp_difference_ms, 10)) ? parseInt(timestamp_difference_ms, 10) : null,
       gps_match_status: gps_match_status || 'UNCHECKED',
       video_source: req.body.video_source || req.body.video_filename || null,
-      source_type: req.body.source_type || 'LIVE',
+      source_type: req.body.source_type || 'UPLOAD',
       evidence_image_url: evidenceImageUrl
     };
 
     // Cache in in-memory event store
     inMemoryEvents.set(eventRecord.event_id, eventRecord);
+
+    // Update videoJobProgress counters
+    const job = videoJobProgress.get(session_id);
+    if (job) {
+      job.events_created = (job.events_created || 0) + 1;
+    }
 
     console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% | Category: ${eventRecord.category} | Dept: ${eventRecord.department} | Risk: ${eventRecord.risk_level} (${eventRecord.risk_score}) | Priority: ${eventRecord.priority} (Observed: ${eventRecord.observation_count}x)`);
     console.log(`  Candidate: ${eventRecord.candidate_id || 'N/A'} | Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
@@ -830,14 +1079,17 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     const targetRoom = eventRecord.bus_id || 'BUS-101';
     io.to(targetRoom).emit('edge-event-detected', eventRecord);
     io.emit('edge-event-detected', eventRecord);
+    io.emit('edge-pothole-detected', eventRecord);
 
     return res.status(200).json({
       success: true,
+      action: 'CREATED',
       event_id: eventRecord.event_id,
       candidate_id: eventRecord.candidate_id,
       category: eventRecord.category,
       department: eventRecord.department,
       evidence_image_url: evidenceImageUrl,
+      confidence: eventRecord.confidence,
       dbSaved,
       dbConfigured: supabase.isSupabaseConfigured()
     });

@@ -148,6 +148,22 @@ const uploadSpeedVal = document.getElementById('uploadSpeedVal');
 const uploadMatchStatusVal = document.getElementById('uploadMatchStatusVal');
 const uploadDeltaVal = document.getElementById('uploadDeltaVal');
 
+// Incremental AI Progress Card Elements
+const uploadAiProgressCard = document.getElementById('uploadAiProgressCard');
+const uploadAiStatusBadge = document.getElementById('uploadAiStatusBadge');
+const uploadAiStatusDot = document.getElementById('uploadAiStatusDot');
+const uploadAiStatusBadgeText = document.getElementById('uploadAiStatusBadgeText');
+const uploadAiProgressLabel = document.getElementById('uploadAiProgressLabel');
+const uploadAiProgressPercent = document.getElementById('uploadAiProgressPercent');
+const uploadAiProgressFill = document.getElementById('uploadAiProgressFill');
+const uploadAiFramesVal = document.getElementById('uploadAiFramesVal');
+const uploadAiElapsedVal = document.getElementById('uploadAiElapsedVal');
+const uploadAiGpsVal = document.getElementById('uploadAiGpsVal');
+const uploadAiDetectionsVal = document.getElementById('uploadAiDetectionsVal');
+const uploadAiCreatedVal = document.getElementById('uploadAiCreatedVal');
+const uploadAiUpdatedVal = document.getElementById('uploadAiUpdatedVal');
+let aiProgressPollingTimer = null;
+
 // ==============================================================================
 // STATE VARIABLES
 // ==============================================================================
@@ -414,6 +430,9 @@ function initSignaling() {
 
   socket.on('gps-update', (data) => handleLiveGpsUpdate(data));
   socket.on('edge-event-detected', (eventData) => handleEdgeEventDetected(eventData));
+  socket.on('edge-pothole-detected', (eventData) => handleEdgeEventDetected(eventData));
+  socket.on('edge-pothole-updated', (eventData) => handleEdgeEventUpdated(eventData));
+  socket.on('video-processing-progress', (progressData) => handleVideoProcessingProgress(progressData));
 
   socket.on('offer', async ({ sdp }) => {
     hideAlert();
@@ -816,9 +835,108 @@ resetUploadBtn.addEventListener('click', () => {
   uploadSubmitBtn.disabled = true;
   uploadSubmitBtnText.textContent = 'UPLOAD & START PROCESSING';
 
+  if (uploadAiProgressCard) uploadAiProgressCard.style.display = 'none';
+  if (aiProgressPollingTimer) {
+    clearInterval(aiProgressPollingTimer);
+    aiProgressPollingTimer = null;
+  }
+
   uploadedVideoPlayer.pause();
   uploadedVideoPlayer.src = '';
 });
+
+// Incremental AI Progress Handler
+function handleVideoProcessingProgress(data) {
+  if (!data) return;
+  if (uploadedSessionData && data.session_id && data.session_id !== uploadedSessionData.session_id) {
+    return;
+  }
+
+  if (uploadAiProgressCard) uploadAiProgressCard.style.display = 'block';
+
+  const pct = Math.min(100, Math.max(0, Number(data.percent || 0)));
+  if (uploadAiProgressPercent) uploadAiProgressPercent.textContent = `${pct.toFixed(1)}%`;
+  if (uploadAiProgressFill) uploadAiProgressFill.style.width = `${pct}%`;
+
+  if (uploadAiFramesVal) {
+    uploadAiFramesVal.textContent = `${data.processed_frames || 0} / ${data.total_frames || 0}`;
+  }
+
+  if (uploadAiElapsedVal) {
+    const elapsed = data.elapsed_seconds || data.elapsed_video_sec || 0;
+    uploadAiElapsedVal.textContent = `${Number(elapsed).toFixed(1)}s`;
+  }
+
+  if (uploadAiGpsVal) {
+    if (data.current_gps && data.current_gps.latitude !== null && data.current_gps.latitude !== undefined) {
+      uploadAiGpsVal.textContent = `${Number(data.current_gps.latitude).toFixed(5)}, ${Number(data.current_gps.longitude).toFixed(5)}`;
+    } else {
+      uploadAiGpsVal.textContent = '--';
+    }
+  }
+
+  if (uploadAiDetectionsVal) uploadAiDetectionsVal.textContent = data.potholes_found || 0;
+  if (uploadAiCreatedVal) uploadAiCreatedVal.textContent = data.events_created || 0;
+  if (uploadAiUpdatedVal) uploadAiUpdatedVal.textContent = data.events_updated || 0;
+
+  if (data.status === 'COMPLETED') {
+    if (uploadAiStatusBadge) {
+      uploadAiStatusBadge.className = 'badge badge-live';
+      if (uploadAiStatusBadgeText) uploadAiStatusBadgeText.textContent = 'COMPLETED';
+      if (uploadAiStatusDot) uploadAiStatusDot.className = 'status-dot active';
+    }
+    if (uploadAiProgressLabel) uploadAiProgressLabel.textContent = '✓ AI Video Processing & Timestamp Sync Finished!';
+
+    if (processAiBtn) {
+      const created = data.events_created || 0;
+      const updated = data.events_updated || 0;
+      processAiBtn.textContent = `✓ Complete (${created} Created, ${updated} Merged)`;
+      processAiBtn.style.background = '#16a34a';
+      processAiBtn.style.borderColor = '#16a34a';
+      processAiBtn.disabled = false;
+    }
+
+    if (aiProgressPollingTimer) {
+      clearInterval(aiProgressPollingTimer);
+      aiProgressPollingTimer = null;
+    }
+
+    showAlert(`✓ Video AI Processing Complete! Processed ${data.processed_frames} frames. Created ${data.events_created || 0} new events, merged/updated ${data.events_updated || 0} duplicate observations within 10m.`, 'success');
+  } else if (data.status === 'ERROR') {
+    if (uploadAiStatusBadge) {
+      uploadAiStatusBadge.className = 'badge badge-offline';
+      if (uploadAiStatusBadgeText) uploadAiStatusBadgeText.textContent = 'ERROR';
+      if (uploadAiStatusDot) uploadAiStatusDot.className = 'status-dot';
+    }
+    if (uploadAiProgressLabel) uploadAiProgressLabel.textContent = 'Processing Error Encountered';
+
+    if (processAiBtn) {
+      processAiBtn.textContent = '⚡ Retry AI Processing';
+      processAiBtn.disabled = false;
+    }
+
+    if (aiProgressPollingTimer) {
+      clearInterval(aiProgressPollingTimer);
+      aiProgressPollingTimer = null;
+    }
+
+    showAlert(`Video processing error: ${data.error || 'Unknown error'}`, 'danger');
+  } else {
+    // In progress
+    if (uploadAiStatusBadge) {
+      uploadAiStatusBadge.className = 'badge badge-live';
+      if (uploadAiStatusBadgeText) uploadAiStatusBadgeText.textContent = 'PROCESSING';
+      if (uploadAiStatusDot) uploadAiStatusDot.className = 'status-dot active';
+    }
+    if (uploadAiProgressLabel) uploadAiProgressLabel.textContent = `Analyzing Frame ${data.current_frame || data.processed_frames || 0}...`;
+  }
+}
+
+function handleEdgeEventUpdated(eventRecord) {
+  handleEdgeEventDetected(eventRecord);
+  const confPct = Math.round((eventRecord.confidence || 0) * 100);
+  showAlert(`🔄 Updated existing pothole event ${eventRecord.event_id} with higher confidence (${confPct}%)`, 'info');
+}
 
 // AI Processing for Uploaded Video (Timestamp Synchronization & YOLO Pipeline)
 processAiBtn.addEventListener('click', async () => {
@@ -829,9 +947,19 @@ processAiBtn.addEventListener('click', async () => {
 
   try {
     processAiBtn.disabled = true;
-    processAiBtn.innerHTML = '<span class="status-indicator live" style="display:inline-block; margin-right: 6px;"></span> Synchronizing Timestamps & Processing AI...';
+    processAiBtn.innerHTML = '<span class="status-indicator live" style="display:inline-block; margin-right: 6px;"></span> Background AI Processing Started...';
 
-    const res = await fetch(`/api/process-session/${uploadedSessionData.session_id}`, {
+    if (uploadAiProgressCard) {
+      uploadAiProgressCard.style.display = 'block';
+      if (uploadAiProgressFill) uploadAiProgressFill.style.width = '0%';
+      if (uploadAiProgressPercent) uploadAiProgressPercent.textContent = '0.0%';
+      if (uploadAiStatusBadgeText) uploadAiStatusBadgeText.textContent = 'STARTED';
+      if (uploadAiProgressLabel) uploadAiProgressLabel.textContent = 'Initiating background AI pipeline...';
+    }
+
+    const sessionId = uploadedSessionData.session_id;
+
+    const res = await fetch(`/api/process-session/${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -845,18 +973,27 @@ processAiBtn.addEventListener('click', async () => {
     const data = await res.json();
 
     if (!res.ok) {
-      throw new Error(data.error || 'AI processing encountered an error');
+      throw new Error(data.error || 'AI processing failed to start');
     }
 
-    const eventCount = data.finalized_events_count !== undefined ? data.finalized_events_count : (data.finalized_events ? data.finalized_events.length : 0);
-    const detCount = data.detections_found || 0;
-    const procTime = data.processing_time_seconds || '--';
+    showAlert('⚡ Background AI video processing initiated. Real-time progress is streaming below.', 'info');
 
-    showAlert(`✓ AI Processing & Timestamp Synchronization Complete! Processed ${data.processed_frames || 0} frames in ${procTime}s (${data.average_fps || '--'} FPS). Detected ${detCount} potholes, finalized ${eventCount} evidence events.`, 'success');
-    processAiBtn.textContent = `✓ AI Complete (${eventCount} Events Finalized)`;
-    processAiBtn.style.background = '#16a34a';
-    processAiBtn.style.borderColor = '#16a34a';
-    processAiBtn.disabled = false;
+    // Start fallback polling every 1.5s in case WebSockets are delayed
+    if (aiProgressPollingTimer) clearInterval(aiProgressPollingTimer);
+    aiProgressPollingTimer = setInterval(async () => {
+      try {
+        const pollRes = await fetch(`/api/session-progress/${sessionId}`);
+        if (pollRes.ok) {
+          const pollData = await pollRes.json();
+          handleVideoProcessingProgress(pollData);
+          if (pollData.status === 'COMPLETED' || pollData.status === 'ERROR') {
+            clearInterval(aiProgressPollingTimer);
+            aiProgressPollingTimer = null;
+          }
+        }
+      } catch (_) {}
+    }, 1500);
+
   } catch (err) {
     showAlert(`AI processing failed: ${err.message}`, 'danger');
     processAiBtn.disabled = false;
