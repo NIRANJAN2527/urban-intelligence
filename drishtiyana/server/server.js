@@ -1044,7 +1044,14 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       gps_match_status: gps_match_status || 'UNCHECKED',
       video_source: req.body.video_source || req.body.video_filename || null,
       source_type: req.body.source_type || 'UPLOAD',
-      evidence_image_url: evidenceImageUrl
+      evidence_image_url: evidenceImageUrl,
+      verification_status: req.body.verification_status || 'PENDING_REVIEW',
+      is_active: req.body.is_active !== undefined ? (req.body.is_active === true || req.body.is_active === 'true' || req.body.is_active === 1) : true,
+      verified_at: null,
+      verified_by: null,
+      rejected_at: null,
+      rejected_by: null,
+      rejection_reason: null
     };
 
     // Cache in in-memory event store
@@ -1123,7 +1130,7 @@ app.get('/api/admin/config', requireAdminAuth, (req, res) => {
 // GET /api/admin/events: Retrieves real events with filters and search
 app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
   try {
-    const { category, problem, risk_level, priority, department, status, report_status, bus_id, search, limit } = req.query;
+    const { category, problem, risk_level, priority, department, status, report_status, bus_id, search, limit, verification_status, include_inactive } = req.query;
 
     let allEvents = [];
     if (supabase.isSupabaseConfigured()) {
@@ -1192,9 +1199,24 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         timestamp_difference_ms: evt.timestamp_difference_ms || null,
         evidence_image_url: evt.evidence_image_url || null,
         video_source: evt.video_source || null,
-        source_type: evt.source_type || 'LIVE'
+        source_type: evt.source_type || 'LIVE',
+        verification_status: evt.verification_status || 'PENDING_REVIEW',
+        is_active: evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true,
+        verified_at: evt.verified_at || null,
+        verified_by: evt.verified_by || null,
+        rejected_at: evt.rejected_at || null,
+        rejected_by: evt.rejected_by || null,
+        rejection_reason: evt.rejection_reason || null
       };
     });
+
+    // Verification status filter
+    if (verification_status && verification_status !== 'all') {
+      enriched = enriched.filter(e => (e.verification_status || 'PENDING_REVIEW').toUpperCase() === verification_status.toUpperCase());
+    } else if (include_inactive !== 'true' && verification_status !== 'all') {
+      // By default exclude soft-deleted/rejected events from active views unless explicitly requested
+      enriched = enriched.filter(e => e.is_active !== false && (e.verification_status || 'PENDING_REVIEW') !== 'REJECTED');
+    }
 
     // Filter layer
     if (category && category !== 'all') {
@@ -1268,6 +1290,9 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
     let trafficProblems = 0;
     let safetyIncidents = 0;
     let reportsDispatched = 0;
+    let pendingReview = 0;
+    let verifiedCount = 0;
+    let rejectedCount = 0;
     const byDepartment = {};
     const byCategory = {};
 
@@ -1279,6 +1304,12 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
       const prio = (evt.priority || 'MEDIUM').toUpperCase();
       const stat = (evt.status || 'NEW').toUpperCase();
       const repStat = (evt.report_status || 'PENDING').toUpperCase();
+      const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+      const isActive = evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true;
+
+      if (vStat === 'VERIFIED') verifiedCount++;
+      else if (vStat === 'REJECTED' || !isActive) rejectedCount++;
+      else pendingReview++;
 
       if (stat === 'NEW') newEvents++;
       if (prio === 'HIGH') highPriority++;
@@ -1297,6 +1328,11 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
       success: true,
       stats: {
         total_events: total,
+        total_detections: total,
+        pending_review: pendingReview,
+        verified: verifiedCount,
+        rejected: rejectedCount,
+        reports_sent: reportsDispatched,
         new_events: newEvents,
         high_priority: highPriority,
         critical_events: criticalEvents,
@@ -1359,6 +1395,93 @@ app.patch('/api/admin/events/:eventId/status', requireAdminAuth, async (req, res
   return res.json({ success: true, event_id: eventId, status: normalizedStatus });
 });
 
+// PATCH /api/admin/events/:eventId/verify: Verify detection candidate
+app.patch('/api/admin/events/:eventId/verify', requireAdminAuth, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    let event = inMemoryEvents.get(eventId);
+    if (!event && supabase.isSupabaseConfigured()) {
+      const dbRes = await supabase.getPotholeEvents({ limit: 500 });
+      if (dbRes.success && Array.isArray(dbRes.data)) {
+        event = dbRes.data.find(e => e.event_id === eventId);
+      }
+    }
+
+    if (!event) {
+      return res.status(404).json({ success: false, error: `Event not found: ${eventId}` });
+    }
+
+    event.verification_status = 'VERIFIED';
+    event.is_active = true;
+    event.verified_at = new Date().toISOString();
+    event.verified_by = req.adminUser ? req.adminUser.username : 'admin';
+    inMemoryEvents.set(eventId, event);
+
+    if (supabase.isSupabaseConfigured()) {
+      await supabase.updateEventVerificationStatus(eventId, 'VERIFIED', true);
+    }
+
+    io.emit('event-verified', {
+      event_id: eventId,
+      verification_status: 'VERIFIED',
+      is_active: true,
+      verified_by: event.verified_by,
+      verified_at: event.verified_at
+    });
+
+    console.log(`[Admin Verification] Event ${eventId} marked as VERIFIED by ${event.verified_by}`);
+    return res.json({ success: true, event_id: eventId, verification_status: 'VERIFIED', is_active: true, event });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/events/:eventId/verify:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/admin/events/:eventId/reject: Reject detection candidate (soft delete from active views)
+app.patch('/api/admin/events/:eventId/reject', requireAdminAuth, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { reason } = req.body || {};
+    let event = inMemoryEvents.get(eventId);
+    if (!event && supabase.isSupabaseConfigured()) {
+      const dbRes = await supabase.getPotholeEvents({ limit: 500 });
+      if (dbRes.success && Array.isArray(dbRes.data)) {
+        event = dbRes.data.find(e => e.event_id === eventId);
+      }
+    }
+
+    if (!event) {
+      return res.status(404).json({ success: false, error: `Event not found: ${eventId}` });
+    }
+
+    event.verification_status = 'REJECTED';
+    event.is_active = false;
+    event.rejection_reason = reason || 'False positive / Rejected by Admin';
+    event.rejected_at = new Date().toISOString();
+    event.rejected_by = req.adminUser ? req.adminUser.username : 'admin';
+    inMemoryEvents.set(eventId, event);
+
+    if (supabase.isSupabaseConfigured()) {
+      await supabase.updateEventVerificationStatus(eventId, 'REJECTED', false);
+    }
+
+    io.emit('event-rejected', {
+      event_id: eventId,
+      verification_status: 'REJECTED',
+      is_active: false,
+      rejected_by: event.rejected_by,
+      rejected_at: event.rejected_at,
+      rejection_reason: event.rejection_reason
+    });
+
+    console.log(`[Admin Verification] Event ${eventId} marked as REJECTED by ${event.rejected_by} (soft-deleted from active map)`);
+    return res.json({ success: true, event_id: eventId, verification_status: 'REJECTED', is_active: false, event });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/events/:eventId/reject:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /api/admin/reports/send: Send GIS incident report to responsible department (Idempotent)
 app.post('/api/admin/reports/send', requireAdminAuth, async (req, res) => {
   try {
@@ -1378,6 +1501,15 @@ app.post('/api/admin/reports/send', requireAdminAuth, async (req, res) => {
 
     if (!event) {
       return res.status(404).json({ success: false, error: `Event not found: ${event_id}` });
+    }
+
+    // Strict verification requirement: Candidates in PENDING_REVIEW or REJECTED cannot be dispatched
+    const currentVerification = (event.verification_status || 'PENDING_REVIEW').toUpperCase();
+    if (currentVerification !== 'VERIFIED' || event.is_active === false) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot dispatch report: Incident must be VERIFIED before reporting (current status: ${currentVerification}).`
+      });
     }
 
     // Duplicate prevention: If report is already sent for this event, do not create duplicate

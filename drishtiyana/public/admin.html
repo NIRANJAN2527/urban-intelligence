@@ -130,17 +130,32 @@
       <!-- ================================================================== -->
       <section id="view-overview" class="admin-view-section">
 
-        <!-- 7 Summary Statistic Cards -->
+        <!-- 7 Summary Statistic Cards (AI Detection Candidates & Review Workflow) -->
         <div class="admin-stats-grid">
           <div class="stat-card">
-            <span class="stat-label">TOTAL EVENTS</span>
+            <span class="stat-label">AI DETECTIONS</span>
             <span class="stat-value" id="statTotalEvents">0</span>
-            <span class="stat-desc">All recorded defects</span>
+            <span class="stat-desc">Total candidates detected</span>
           </div>
-          <div class="stat-card">
-            <span class="stat-label">NEW EVENTS</span>
-            <span class="stat-value" id="statNewEvents" style="color: var(--color-primary);">0</span>
-            <span class="stat-desc">Pending triage</span>
+          <div class="stat-card" style="border-top: 3px solid #D97706;">
+            <span class="stat-label">PENDING REVIEW</span>
+            <span class="stat-value" id="statPendingReview" style="color: #D97706;">0</span>
+            <span class="stat-desc">Awaiting supervisor triage</span>
+          </div>
+          <div class="stat-card" style="border-top: 3px solid #16A34A;">
+            <span class="stat-label">VERIFIED</span>
+            <span class="stat-value" id="statVerified" style="color: #16A34A;">0</span>
+            <span class="stat-desc">Confirmed defects</span>
+          </div>
+          <div class="stat-card" style="border-top: 3px solid #64748B;">
+            <span class="stat-label">REJECTED</span>
+            <span class="stat-value" id="statRejected" style="color: #64748B;">0</span>
+            <span class="stat-desc">False positives / soft-deleted</span>
+          </div>
+          <div class="stat-card" style="border-top: 3px solid var(--color-primary);">
+            <span class="stat-label">REPORTS SENT</span>
+            <span class="stat-value" id="statReportsSent" style="color: var(--color-primary);">0</span>
+            <span class="stat-desc">Dispatched to departments</span>
           </div>
           <div class="stat-card high">
             <span class="stat-label">HIGH PRIORITY</span>
@@ -151,21 +166,6 @@
             <span class="stat-label">CRITICAL EVENTS</span>
             <span class="stat-value" id="statCriticalEvents" style="color: var(--color-offline);">0</span>
             <span class="stat-desc">Risk score 76 - 100</span>
-          </div>
-          <div class="stat-card road">
-            <span class="stat-label">ROAD PROBLEMS</span>
-            <span class="stat-value" id="statRoadProblems" style="color: #16A34A;">0</span>
-            <span class="stat-desc">Potholes, cracks, dividers</span>
-          </div>
-          <div class="stat-card traffic">
-            <span class="stat-label">TRAFFIC PROBLEMS</span>
-            <span class="stat-value" id="statTrafficProblems" style="color: #D97706;">0</span>
-            <span class="stat-desc">Congestion & density</span>
-          </div>
-          <div class="stat-card safety">
-            <span class="stat-label">SAFETY INCIDENTS</span>
-            <span class="stat-value" id="statSafetyIncidents" style="color: #DC2626;">0</span>
-            <span class="stat-desc">Pedestrian & rash driving</span>
           </div>
         </div>
 
@@ -199,7 +199,10 @@
                 <span>🔍</span>
                 <span>EVENT DETAILS</span>
               </div>
-              <span class="badge" id="detailStatusBadge">SELECT EVENT</span>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <span class="badge" id="detailVerificationBadge" style="display: none;">PENDING REVIEW</span>
+                <span class="badge" id="detailStatusBadge">SELECT EVENT</span>
+              </div>
             </div>
             
             <div class="detail-body" id="detailBody">
@@ -214,6 +217,28 @@
 
               <!-- Content populated when event selected -->
               <div id="detailContent" style="display: none; flex-direction: column; gap: 0.85rem;">
+                <!-- AI Detection Candidate Evaluation Banner & Review Actions -->
+                <div id="detailVerificationBanner" class="verification-banner pending">
+                  <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700;">
+                    <span id="detailBannerTitle">⚠️ AI DETECTION CANDIDATE</span>
+                    <span id="detailBannerBadge" class="badge-v-pending">⏳ PENDING REVIEW</span>
+                  </div>
+                  <div id="detailBannerDesc" style="font-size: 0.74rem;">
+                    This detection is an automated AI candidate. A human supervisor must verify and approve it before it can be dispatched to municipal departments.
+                  </div>
+                  <!-- Review Action Buttons -->
+                  <div style="display: flex; gap: 0.5rem; margin-top: 0.35rem;">
+                    <button id="verifyEventBtn" type="button" class="btn-verify" style="flex: 1;" title="Confirm and verify this detection">
+                      <span>✓</span>
+                      <span>VERIFY DETECTION</span>
+                    </button>
+                    <button id="rejectEventBtn" type="button" class="btn-reject" style="flex: 1;" title="Mark as false positive / discard from active map">
+                      <span>✕</span>
+                      <span>REJECT / FALSE POSITIVE</span>
+                    </button>
+                  </div>
+                </div>
+
                 <!-- Evidence Image -->
                 <div class="detail-evidence-frame">
                   <img id="detailEvidenceImg" src="" alt="Best Evidence Frame" class="detail-evidence-img" title="Click to view full image">
@@ -307,6 +332,9 @@
                     <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em;">DEPARTMENT DISPATCH</span>
                     <span class="badge" id="detailReportStatusBadge" style="font-size: 0.7rem;">PENDING</span>
                   </div>
+                  <div id="reportLockNotice" style="display: none; font-size: 0.74rem; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 0.4rem 0.6rem; border-radius: 4px; margin-bottom: 0.5rem; line-height: 1.35;">
+                    🔒 <strong>Dispatch Locked:</strong> Detection candidate must be evaluated and marked as <strong>VERIFIED</strong> before forwarding to department.
+                  </div>
                   <p style="font-size: 0.74rem; color: var(--text-secondary); margin: 0 0 0.5rem 0; line-height: 1.4;">
                     Forward GIS telemetry, physical evidence image, and severity metrics to the responsible authority:
                   </p>
@@ -330,6 +358,15 @@
         <!-- Filter Control Bar -->
         <div class="admin-filter-bar" style="margin-top: 1.5rem;">
           <div class="filter-group">
+            <span class="filter-label">Verification:</span>
+            <div class="vfilter-btn-group" id="verificationFilterGroup">
+              <button type="button" class="vfilter-btn active" data-val="PENDING_REVIEW">⏳ Pending Review</button>
+              <button type="button" class="vfilter-btn" data-val="VERIFIED">✓ Verified</button>
+              <button type="button" class="vfilter-btn" data-val="REJECTED">✕ Rejected</button>
+              <button type="button" class="vfilter-btn" data-val="all">All</button>
+            </div>
+          </div>
+          <div class="filter-group">
             <span class="filter-label">Search:</span>
             <input type="text" id="filterSearchInput" class="filter-search" placeholder="Search Event ID, Bus, Problem...">
           </div>
@@ -340,6 +377,16 @@
               <option value="Road & Infrastructure">Road & Infrastructure</option>
               <option value="Traffic">Traffic</option>
               <option value="Safety">Safety</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label">Department:</span>
+            <select id="filterDepartmentSelect" class="filter-select">
+              <option value="all">All Departments</option>
+              <option value="ROAD MAINTENANCE">Road Maintenance</option>
+              <option value="TRAFFIC MANAGEMENT">Traffic Management</option>
+              <option value="MUNICIPAL">Municipal</option>
+              <option value="POLICE / EMERGENCY">Police / Emergency</option>
             </select>
           </div>
           <div class="filter-group">
@@ -397,6 +444,7 @@
                   <th>Category</th>
                   <th>Problem</th>
                   <th>Confidence</th>
+                  <th>Verification</th>
                   <th>Risk Score</th>
                   <th>Priority</th>
                   <th>Location (Lat, Lon)</th>
@@ -482,6 +530,30 @@
     <div style="position: relative; max-width: 90vw; max-height: 90vh;">
       <button id="closeModalBtn" style="position: absolute; top: -40px; right: 0; background: transparent; border: none; color: #fff; font-size: 2rem; cursor: pointer;">&times;</button>
       <img id="modalImg" src="" alt="High Resolution Evidence" style="max-width: 100%; max-height: 85vh; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+    </div>
+  </div>
+
+  <!-- Department Dispatch Verification Confirmation Modal -->
+  <div id="confirmReportModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 10000; align-items: center; justify-content: center; padding: 1.5rem;">
+    <div style="max-width: 460px; width: 100%; background: #ffffff; border-radius: 10px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid var(--bg-card-border);">
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem;">
+        <span>🛡️</span> Department Dispatch Confirmation
+      </h3>
+      <p style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; margin: 0 0 1rem 0;">
+        Confirm that this detection has been reviewed and verified. Once confirmed, official incident telemetry and evidence will be dispatched to <strong id="confirmModalDept" style="color: var(--color-primary);">ROAD MAINTENANCE</strong>.
+      </p>
+      <div style="background: var(--bg-surface-alt); border: 1px solid var(--bg-card-border); border-radius: 6px; padding: 0.75rem; margin-bottom: 1.25rem; font-size: 0.78rem; line-height: 1.6;">
+        <div><strong>Event ID:</strong> <span id="confirmModalEventId">--</span></div>
+        <div><strong>Problem:</strong> <span id="confirmModalProblem">--</span></div>
+        <div><strong>AI Confidence:</strong> <span id="confirmModalConf" style="color: var(--color-primary); font-weight: 700;">--</span></div>
+        <div><strong>Verification Status:</strong> <span class="badge-v-verified" style="font-size: 0.7rem;">✓ VERIFIED</span></div>
+      </div>
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button id="cancelReportBtn" type="button" class="btn btn-secondary" style="padding: 0.45rem 1rem; font-size: 0.8rem; cursor: pointer;">Cancel</button>
+        <button id="confirmSendReportBtn" type="button" class="btn btn-primary" style="padding: 0.45rem 1.2rem; font-size: 0.8rem; font-weight: 700; cursor: pointer;">
+          Confirm & Dispatch
+        </button>
+      </div>
     </div>
   </div>
 

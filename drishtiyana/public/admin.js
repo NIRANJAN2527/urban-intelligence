@@ -32,6 +32,10 @@ const adminServerDot = document.getElementById('adminServerDot');
 const adminServerText = document.getElementById('adminServerText');
 
 const statTotalEvents = document.getElementById('statTotalEvents');
+const statPendingReview = document.getElementById('statPendingReview');
+const statVerified = document.getElementById('statVerified');
+const statRejected = document.getElementById('statRejected');
+const statReportsSent = document.getElementById('statReportsSent');
 const statNewEvents = document.getElementById('statNewEvents');
 const statHighPriority = document.getElementById('statHighPriority');
 const statCriticalEvents = document.getElementById('statCriticalEvents');
@@ -50,6 +54,14 @@ const adminDetailPanel = document.getElementById('adminDetailPanel');
 const detailPlaceholder = document.getElementById('detailPlaceholder');
 const detailContent = document.getElementById('detailContent');
 const detailStatusBadge = document.getElementById('detailStatusBadge');
+const detailVerificationBadge = document.getElementById('detailVerificationBadge');
+const detailVerificationBanner = document.getElementById('detailVerificationBanner');
+const detailBannerTitle = document.getElementById('detailBannerTitle');
+const detailBannerBadge = document.getElementById('detailBannerBadge');
+const detailBannerDesc = document.getElementById('detailBannerDesc');
+const verifyEventBtn = document.getElementById('verifyEventBtn');
+const rejectEventBtn = document.getElementById('rejectEventBtn');
+
 const detailEvidenceImg = document.getElementById('detailEvidenceImg');
 const detailEvidenceUnavailable = document.getElementById('detailEvidenceUnavailable');
 const detailEvidenceTag = document.getElementById('detailEvidenceTag');
@@ -80,10 +92,15 @@ const sendReportBtn = document.getElementById('sendReportBtn');
 const sendReportBtnText = document.getElementById('sendReportBtnText');
 const sendReportSpinner = document.getElementById('sendReportSpinner');
 const reportFeedback = document.getElementById('reportFeedback');
+const reportLockNotice = document.getElementById('reportLockNotice');
 
 // DOM Elements - Filter Bar
+const verificationFilterGroup = document.getElementById('verificationFilterGroup');
+let currentVerificationFilter = 'PENDING_REVIEW'; // Default view emphasizes Pending Review
+
 const filterSearchInput = document.getElementById('filterSearchInput');
 const filterCategorySelect = document.getElementById('filterCategorySelect');
+const filterDepartmentSelect = document.getElementById('filterDepartmentSelect');
 const filterRiskSelect = document.getElementById('filterRiskSelect');
 const filterPrioritySelect = document.getElementById('filterPrioritySelect');
 const filterStatusSelect = document.getElementById('filterStatusSelect');
@@ -100,6 +117,15 @@ const tableEmptyState = document.getElementById('tableEmptyState');
 const imageModal = document.getElementById('imageModal');
 const modalImg = document.getElementById('modalImg');
 const closeModalBtn = document.getElementById('closeModalBtn');
+
+// Dispatch Confirmation Modal Elements
+const confirmReportModal = document.getElementById('confirmReportModal');
+const confirmModalDept = document.getElementById('confirmModalDept');
+const confirmModalEventId = document.getElementById('confirmModalEventId');
+const confirmModalProblem = document.getElementById('confirmModalProblem');
+const confirmModalConf = document.getElementById('confirmModalConf');
+const cancelReportBtn = document.getElementById('cancelReportBtn');
+const confirmSendReportBtn = document.getElementById('confirmSendReportBtn');
 
 // ==============================================================================
 // 1.1 AUTHENTICATION HELPERS
@@ -154,6 +180,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initGisMap();
   setupSidebarNavigation();
   setupFilterListeners();
+  setupVerificationButtons();
   setupSocketListeners();
   setupImageModal();
   setupReportSender();
@@ -164,7 +191,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ==============================================================================
-// 3. LEAFLET GIS MAP INITIALIZATION
+// 3. LEAFLET GIS MAP INITIALIZATION (OpenStreetMap)
 // ==============================================================================
 function initGisMap() {
   if (!window.L) {
@@ -177,14 +204,13 @@ function initGisMap() {
 
   leafletMap = L.map('adminGisMap', {
     zoomControl: true,
-    attributionControl: false
+    attributionControl: true
   }).setView(defaultCenter, 12);
 
-  // Modern clean Positron light map tiles
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  // OpenStreetMap standard tile layer (100% free, zero Google/paid API key required)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    subdomains: 'abcd',
-    attribution: '&copy; OpenStreetMap &copy; CARTO'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
   }).addTo(leafletMap);
 
   if (recenterAdminMapBtn) {
@@ -196,31 +222,43 @@ function initGisMap() {
   setTimeout(() => leafletMap.invalidateSize(), 400);
 }
 
-function createCategoryIcon(category, problem, riskLevel) {
+function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
   let catClass = 'road';
   let iconEmoji = '🚧';
 
   const catNorm = (category || '').toLowerCase();
-  if (catNorm.includes('traffic')) {
+  const probNorm = (problem || '').toLowerCase();
+
+  if (probNorm.includes('pothole')) {
+    iconEmoji = '🕳️';
+  } else if (catNorm.includes('traffic') || probNorm.includes('traffic') || probNorm.includes('congestion') || probNorm.includes('signal')) {
     catClass = 'traffic';
     iconEmoji = '🚦';
-  } else if (catNorm.includes('safety')) {
+  } else if (catNorm.includes('safety') || probNorm.includes('pedestrian') || probNorm.includes('rash') || probNorm.includes('accident')) {
     catClass = 'safety';
     iconEmoji = '🛡️';
   }
 
   const isCritical = (riskLevel || '').toUpperCase() === 'CRITICAL';
-  const criticalClass = isCritical ? 'critical' : '';
+  const vStat = (verificationStatus || 'PENDING_REVIEW').toUpperCase();
+
+  let vClass = 'marker-pending';
+  let vBadgeHtml = '<span class="marker-vbadge pending" title="Candidate: Pending Review">⏳</span>';
+  if (vStat === 'VERIFIED') {
+    vClass = 'marker-verified';
+    vBadgeHtml = '<span class="marker-vbadge verified" title="Confirmed: Verified">✓</span>';
+  }
 
   return L.divIcon({
     className: 'gis-marker-container',
     html: `
-      <div class="gis-marker-pin ${catClass} ${criticalClass}" title="${problem || 'Defect'} (${riskLevel || 'Risk'})">
+      <div class="gis-marker-pin ${catClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Defect'} (${vStat})">
         ${iconEmoji}
+        ${vBadgeHtml}
       </div>
     `,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
     popupAnchor: [0, -18]
   });
 }
@@ -250,7 +288,11 @@ async function fetchStats() {
     if (!data.success || !data.stats) return;
 
     const s = data.stats;
-    if (statTotalEvents) statTotalEvents.textContent = s.total_events || 0;
+    if (statTotalEvents) statTotalEvents.textContent = s.total_detections || s.total_events || 0;
+    if (statPendingReview) statPendingReview.textContent = s.pending_review || 0;
+    if (statVerified) statVerified.textContent = s.verified || 0;
+    if (statRejected) statRejected.textContent = s.rejected || 0;
+    if (statReportsSent) statReportsSent.textContent = s.reports_sent || s.reports_dispatched || 0;
     if (statNewEvents) statNewEvents.textContent = s.new_events || 0;
     if (statHighPriority) statHighPriority.textContent = s.high_priority || 0;
     if (statCriticalEvents) statCriticalEvents.textContent = s.critical_events || 0;
@@ -275,6 +317,7 @@ async function fetchAndRenderEvents() {
   try {
     const params = new URLSearchParams();
     const cat = filterCategorySelect ? filterCategorySelect.value : 'all';
+    const dept = filterDepartmentSelect ? filterDepartmentSelect.value : 'all';
     const risk = filterRiskSelect ? filterRiskSelect.value : 'all';
     const prio = filterPrioritySelect ? filterPrioritySelect.value : 'all';
     const stat = filterStatusSelect ? filterStatusSelect.value : 'all';
@@ -282,10 +325,17 @@ async function fetchAndRenderEvents() {
     const q = filterSearchInput ? filterSearchInput.value.trim() : '';
 
     if (cat !== 'all') params.append('category', cat);
+    if (dept !== 'all') params.append('department', dept);
     if (risk !== 'all') params.append('risk_level', risk);
     if (prio !== 'all') params.append('priority', prio);
     if (stat !== 'all') params.append('status', stat);
     if (repStat !== 'all') params.append('report_status', repStat);
+    if (currentVerificationFilter && currentVerificationFilter !== 'all') {
+      params.append('verification_status', currentVerificationFilter);
+    } else if (currentVerificationFilter === 'all') {
+      params.append('verification_status', 'all');
+      params.append('include_inactive', 'true');
+    }
     if (q) params.append('search', q);
 
     const url = `/api/admin/events?${params.toString()}`;
@@ -303,7 +353,7 @@ async function fetchAndRenderEvents() {
     renderMapMarkers(allEventsCache);
 
     if (mapEventCountBadge) {
-      mapEventCountBadge.textContent = `${allEventsCache.length} pin${allEventsCache.length === 1 ? '' : 's'}`;
+      mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
     }
   } catch (err) {
     console.error('[Admin Portal] Failed to fetch events:', err);
@@ -327,33 +377,50 @@ function renderMapMarkers(events) {
   let validCoordsCount = 0;
 
   events.forEach(evt => {
+    const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+    // Exclude soft-deleted / REJECTED events from active map layer
+    if (evt.is_active === false || vStat === 'REJECTED') {
+      return;
+    }
+
     if (evt.latitude === null || evt.longitude === null) return;
     const lat = parseFloat(evt.latitude);
     const lon = parseFloat(evt.longitude);
     if (isNaN(lat) || isNaN(lon)) return;
 
     validCoordsCount++;
-    const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level);
+    const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, vStat);
     const marker = L.marker([lat, lon], { icon }).addTo(leafletMap);
 
-    // Popup content with thumbnail
     const confPct = Math.round((evt.confidence || 0) * 100);
+    const dateFormatted = evt.created_at ? new Date(evt.created_at).toLocaleString() : 'N/A';
+    const locFormatted = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+
     const imgHtml = evt.evidence_image_url
-      ? `<img src="${evt.evidence_image_url}" onerror="this.outerHTML='<div style=\\'background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;\\'>Evidence unavailable</div>'" style="width: 100%; height: 90px; object-fit: cover; border-radius: 6px; margin-bottom: 6px;">`
+      ? `<img src="${evt.evidence_image_url}" onerror="this.outerHTML='<div style=\\'background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;\\'>Evidence unavailable</div>'" style="width: 100%; height: 95px; object-fit: cover; border-radius: 6px; margin-bottom: 6px;">`
       : `<div style="background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;">Evidence unavailable</div>`;
 
+    const vBadgeStyle = vStat === 'VERIFIED'
+      ? 'background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC;'
+      : 'background: #FEF3C7; color: #B45309; border: 1px solid #FDE68A;';
+
     marker.bindPopup(`
-      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 190px; line-height: 1.4;">
+      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 215px; line-height: 1.45;">
         ${imgHtml}
-        <strong style="color: var(--color-primary, #15803D); font-size: 13px;">${evt.problem || 'Defect'}</strong>
-        <div style="color: #64748B; font-size: 11px;">${evt.category || 'Road'} &bull; ${confPct}%</div>
-        <div style="margin-top: 4px;">
-          <strong>Risk:</strong> ${evt.risk_level || 'MED'} (${evt.risk_score || 50}/100)<br>
-          <strong>Priority:</strong> ${evt.priority || 'MEDIUM'}<br>
-          <strong>Bus:</strong> ${evt.bus_id || 'BUS-101'}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <strong style="color: var(--color-primary, #15803D); font-size: 13px;">${evt.problem || evt.class_name || 'Pothole'}</strong>
+          <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; ${vBadgeStyle}">${vStat}</span>
         </div>
-        <button onclick="selectEventById('${evt.event_id}')" style="margin-top: 8px; width: 100%; padding: 4px 8px; background: #15803D; color: #fff; border: none; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer;">
-          Inspect Full Details
+        <div style="color: #475569; font-size: 11px; margin-bottom: 4px;">
+          AI Confidence: <strong style="color: var(--color-primary);">${confPct}%</strong>
+        </div>
+        <div style="font-size: 11px; color: #334155; margin-bottom: 8px;">
+          <div>🕒 <strong>Date/Time:</strong> ${dateFormatted}</div>
+          <div>📍 <strong>Location:</strong> ${locFormatted}</div>
+          <div>🏢 <strong>Dept:</strong> ${evt.department || 'ROAD MAINTENANCE'}</div>
+        </div>
+        <button onclick="selectEventById('${evt.event_id}')" style="width: 100%; padding: 6px 10px; background: #15803D; color: #fff; border: none; border-radius: 4px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+          <span>🔍</span> [ VIEW DETAILS ]
         </button>
       </div>
     `);
@@ -394,6 +461,7 @@ function renderEventsTable(events) {
     const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
     const prio = (evt.priority || 'MEDIUM').toUpperCase();
     const stat = (evt.status || 'NEW').toUpperCase();
+    const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
 
     let riskBadgeClass = 'badge-risk-medium';
     if (rLvl === 'CRITICAL') riskBadgeClass = 'badge-risk-critical';
@@ -404,6 +472,13 @@ function renderEventsTable(events) {
     if (stat === 'ASSIGNED') statClass = 'status-assigned';
     else if (stat === 'IN_PROGRESS') statClass = 'status-in_progress';
     else if (stat === 'RESOLVED') statClass = 'status-resolved';
+
+    let vBadgeHtml = `<span class="badge-v-pending">⏳ PENDING</span>`;
+    if (vStat === 'VERIFIED') {
+      vBadgeHtml = `<span class="badge-v-verified">✓ VERIFIED</span>`;
+    } else if (vStat === 'REJECTED' || evt.is_active === false) {
+      vBadgeHtml = `<span class="badge-v-rejected">✕ REJECTED</span>`;
+    }
 
     const latLonText = (evt.latitude && evt.longitude)
       ? `${evt.latitude.toFixed(4)}, ${evt.longitude.toFixed(4)}`
@@ -426,6 +501,7 @@ function renderEventsTable(events) {
       <td><span style="font-size: 0.8rem; color: var(--text-secondary);">${evt.category || 'Road'}</span></td>
       <td><strong>${evt.problem || evt.class_name || 'Pothole'}</strong></td>
       <td style="font-family: var(--font-mono); font-weight: 600; color: var(--color-primary);">${confPct}%</td>
+      <td>${vBadgeHtml}</td>
       <td><span class="${riskBadgeClass}">${rLvl} (${evt.risk_score || 0})</span></td>
       <td><strong>${prio}</strong></td>
       <td style="font-family: var(--font-mono); font-size: 0.78rem;">${latLonText}</td>
@@ -473,11 +549,90 @@ async function selectEventById(eventId, panMap = true) {
   detailPlaceholder.style.display = 'none';
   detailContent.style.display = 'flex';
 
-  // Status Badge
+  // Verification & Status States
+  const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+  const isActive = evt.is_active !== false && vStat !== 'REJECTED';
   const stat = (evt.status || 'NEW').toUpperCase();
+
+  // Header status & verification badges
   detailStatusBadge.textContent = stat;
   detailStatusBadge.className = `badge badge-status status-${stat.toLowerCase()}`;
   if (detailStatusSelect) detailStatusSelect.value = stat;
+
+  if (detailVerificationBadge) {
+    detailVerificationBadge.style.display = 'inline-block';
+    if (vStat === 'VERIFIED') {
+      detailVerificationBadge.textContent = '✓ VERIFIED';
+      detailVerificationBadge.className = 'badge-v-verified';
+    } else if (vStat === 'REJECTED' || !isActive) {
+      detailVerificationBadge.textContent = '✕ REJECTED';
+      detailVerificationBadge.className = 'badge-v-rejected';
+    } else {
+      detailVerificationBadge.textContent = '⏳ PENDING REVIEW';
+      detailVerificationBadge.className = 'badge-v-pending';
+    }
+  }
+
+  // Candidate Evaluation Banner & Review Action Buttons
+  if (detailVerificationBanner) {
+    if (vStat === 'VERIFIED') {
+      detailVerificationBanner.className = 'verification-banner verified';
+      if (detailBannerTitle) detailBannerTitle.textContent = '✅ VERIFIED ROAD DEFECT';
+      if (detailBannerBadge) {
+        detailBannerBadge.textContent = '✓ VERIFIED';
+        detailBannerBadge.className = 'badge-v-verified';
+      }
+      if (detailBannerDesc) {
+        const byWho = evt.verified_by ? ` by supervisor ${evt.verified_by}` : '';
+        detailBannerDesc.textContent = `This detection candidate has been confirmed and verified${byWho}. It is authorized for department reporting.`;
+      }
+      if (verifyEventBtn) {
+        verifyEventBtn.disabled = true;
+        verifyEventBtn.innerHTML = '<span>✓</span><span>ALREADY VERIFIED</span>';
+      }
+      if (rejectEventBtn) {
+        rejectEventBtn.disabled = false;
+        rejectEventBtn.innerHTML = '<span>✕</span><span>REJECT / DISCARD</span>';
+      }
+    } else if (vStat === 'REJECTED' || !isActive) {
+      detailVerificationBanner.className = 'verification-banner rejected';
+      if (detailBannerTitle) detailBannerTitle.textContent = '❌ REJECTED DETECTION (FALSE POSITIVE)';
+      if (detailBannerBadge) {
+        detailBannerBadge.textContent = '✕ REJECTED';
+        detailBannerBadge.className = 'badge-v-rejected';
+      }
+      if (detailBannerDesc) {
+        const reason = evt.rejection_reason ? ` (Reason: ${evt.rejection_reason})` : '';
+        detailBannerDesc.textContent = `This candidate was rejected as a false positive${reason}. It is hidden from active maps and department reporting.`;
+      }
+      if (verifyEventBtn) {
+        verifyEventBtn.disabled = false;
+        verifyEventBtn.innerHTML = '<span>✓</span><span>RE-VERIFY DETECTION</span>';
+      }
+      if (rejectEventBtn) {
+        rejectEventBtn.disabled = true;
+        rejectEventBtn.innerHTML = '<span>✕</span><span>REJECTED</span>';
+      }
+    } else {
+      detailVerificationBanner.className = 'verification-banner pending';
+      if (detailBannerTitle) detailBannerTitle.textContent = '⚠️ AI DETECTION CANDIDATE';
+      if (detailBannerBadge) {
+        detailBannerBadge.textContent = '⏳ PENDING REVIEW';
+        detailBannerBadge.className = 'badge-v-pending';
+      }
+      if (detailBannerDesc) {
+        detailBannerDesc.textContent = 'Every AI detection is treated strictly as a candidate. A supervisor must evaluate and verify this problem before dispatching to city departments.';
+      }
+      if (verifyEventBtn) {
+        verifyEventBtn.disabled = false;
+        verifyEventBtn.innerHTML = '<span>✓</span><span>VERIFY DETECTION</span>';
+      }
+      if (rejectEventBtn) {
+        rejectEventBtn.disabled = false;
+        rejectEventBtn.innerHTML = '<span>✕</span><span>REJECT / FALSE POSITIVE</span>';
+      }
+    }
+  }
 
   // Evidence Image
   if (evt.evidence_image_url) {
@@ -509,10 +664,10 @@ async function selectEventById(eventId, panMap = true) {
   detailPriorityBadge.textContent = `PRIORITY: ${prio}`;
   detailPriorityBadge.className = `badge badge-risk-${prio === 'HIGH' ? 'high' : 'medium'}`;
 
-  // Field Attributes
+  // Field Attributes (Preserves AI Confidence e.g. 91%)
   detailEvtId.textContent = evt.event_id || '--';
   detailConf.textContent = `${Math.round((evt.confidence || 0) * 100)}%`;
-  detailProblem.textContent = evt.problem || 'Pothole';
+  detailProblem.textContent = evt.problem || evt.class_name || 'Pothole';
   detailObservations.textContent = `${evt.observation_count || 1} frame(s)`;
   detailDepartment.textContent = evt.department || 'ROAD MAINTENANCE';
   detailLat.textContent = evt.latitude ? evt.latitude.toFixed(6) : 'N/A';
@@ -532,7 +687,7 @@ async function selectEventById(eventId, panMap = true) {
     detailAddress.textContent = 'Address unavailable (No GPS)';
   }
 
-  // Department Dispatch Action Card UI State
+  // Department Dispatch Action Card UI State & Strict Verification Lock
   const repStatus = (evt.report_status || 'PENDING').toUpperCase();
   if (detailReportStatusBadge) {
     detailReportStatusBadge.textContent = repStatus;
@@ -559,16 +714,166 @@ async function selectEventById(eventId, panMap = true) {
     reportFeedback.style.display = 'none';
   }
 
-  if (sendReportBtn && sendReportBtnText) {
-    if (repStatus === 'SENT') {
+  // LOCKED DEPARTMENT REPORTING:
+  // If not VERIFIED or is REJECTED, disable button and show lock notice
+  if (repStatus === 'SENT') {
+    if (reportLockNotice) reportLockNotice.style.display = 'none';
+    if (sendReportBtn) {
       sendReportBtn.disabled = true;
       sendReportBtn.style.opacity = '0.75';
-      sendReportBtnText.textContent = `✓ Report Sent to ${evt.department || 'Dept'} (${evt.report_id || 'SENT'})`;
-    } else {
+      sendReportBtn.style.cursor = 'not-allowed';
+    }
+    if (sendReportBtnText) sendReportBtnText.textContent = `✓ Report Dispatched to ${evt.department || 'Dept'} (${evt.report_id || 'SENT'})`;
+  } else if (vStat !== 'VERIFIED' || !isActive) {
+    if (reportLockNotice) {
+      reportLockNotice.style.display = 'block';
+      reportLockNotice.innerHTML = `🔒 <strong>Dispatch Locked:</strong> Detection candidate status is <strong>${vStat}</strong>. Please evaluate and click <strong>[ VERIFY DETECTION ]</strong> above before forwarding to ${evt.department || 'the department'}.`;
+    }
+    if (sendReportBtn) {
+      sendReportBtn.disabled = true;
+      sendReportBtn.style.opacity = '0.55';
+      sendReportBtn.style.cursor = 'not-allowed';
+    }
+    if (sendReportBtnText) sendReportBtnText.textContent = `🔒 Verification Required (${vStat})`;
+  } else {
+    // Confirmed verified: Available for reporting
+    if (reportLockNotice) reportLockNotice.style.display = 'none';
+    if (sendReportBtn) {
       sendReportBtn.disabled = false;
       sendReportBtn.style.opacity = '1';
-      sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+      sendReportBtn.style.cursor = 'pointer';
     }
+    if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+  }
+}
+
+// ==============================================================================
+// 7.1 VERIFICATION WORKFLOW ACTION HANDLERS
+// ==============================================================================
+function setupVerificationButtons() {
+  if (verifyEventBtn) {
+    verifyEventBtn.addEventListener('click', handleVerifyCurrentEvent);
+  }
+  if (rejectEventBtn) {
+    rejectEventBtn.addEventListener('click', handleRejectCurrentEvent);
+  }
+}
+
+async function handleVerifyCurrentEvent() {
+  if (!selectedEventId) return;
+  const evt = allEventsCache.find(e => e.event_id === selectedEventId);
+  if (!evt) return;
+
+  try {
+    if (verifyEventBtn) {
+      verifyEventBtn.disabled = true;
+      verifyEventBtn.textContent = 'Verifying...';
+    }
+
+    const res = await fetch(`/api/admin/events/${selectedEventId}/verify`, {
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      evt.verification_status = 'VERIFIED';
+      evt.is_active = true;
+      evt.verified_at = data.event ? data.event.verified_at : new Date().toISOString();
+      evt.verified_by = data.event ? data.event.verified_by : 'admin';
+
+      // Update in-place without page reload
+      renderEventsTable(allEventsCache);
+      updateSingleMapMarker(evt);
+      selectEventById(selectedEventId, false);
+      await fetchStats();
+    } else {
+      alert(data.error || 'Failed to verify detection candidate');
+      if (verifyEventBtn) verifyEventBtn.disabled = false;
+    }
+  } catch (err) {
+    console.error('[Admin] Verify error:', err);
+    if (verifyEventBtn) verifyEventBtn.disabled = false;
+  }
+}
+
+async function handleRejectCurrentEvent() {
+  if (!selectedEventId) return;
+  const evt = allEventsCache.find(e => e.event_id === selectedEventId);
+  if (!evt) return;
+
+  const reason = prompt('Specify rejection reason (e.g., False positive, shadow artifact, duplicate, harmless marking):', 'False positive');
+  if (reason === null) return; // Cancelled
+
+  try {
+    if (rejectEventBtn) {
+      rejectEventBtn.disabled = true;
+      rejectEventBtn.textContent = 'Rejecting...';
+    }
+
+    const res = await fetch(`/api/admin/events/${selectedEventId}/reject`, {
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ reason: reason.trim() || 'False positive' })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      evt.verification_status = 'REJECTED';
+      evt.is_active = false;
+      evt.rejected_at = data.event ? data.event.rejected_at : new Date().toISOString();
+      evt.rejected_by = data.event ? data.event.rejected_by : 'admin';
+      evt.rejection_reason = reason.trim() || 'False positive';
+
+      // Remove marker immediately from active map
+      const marker = mapMarkersMap.get(selectedEventId);
+      if (marker && leafletMap) {
+        leafletMap.removeLayer(marker);
+        mapMarkersMap.delete(selectedEventId);
+        if (mapEventCountBadge) {
+          mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
+        }
+      }
+
+      // If active filter excludes rejected, filter it out from display list
+      if (currentVerificationFilter !== 'all' && currentVerificationFilter !== 'REJECTED') {
+        allEventsCache = allEventsCache.filter(e => e.event_id !== selectedEventId);
+      }
+
+      renderEventsTable(allEventsCache);
+      selectEventById(selectedEventId, false);
+      await fetchStats();
+    } else {
+      alert(data.error || 'Failed to reject detection candidate');
+      if (rejectEventBtn) rejectEventBtn.disabled = false;
+    }
+  } catch (err) {
+    console.error('[Admin] Reject error:', err);
+    if (rejectEventBtn) rejectEventBtn.disabled = false;
+  }
+}
+
+function updateSingleMapMarker(evt) {
+  if (!leafletMap) return;
+  const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+  if (evt.is_active === false || vStat === 'REJECTED') {
+    const existing = mapMarkersMap.get(evt.event_id);
+    if (existing) {
+      leafletMap.removeLayer(existing);
+      mapMarkersMap.delete(evt.event_id);
+      if (mapEventCountBadge) {
+        mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
+      }
+    }
+    return;
+  }
+
+  const existing = mapMarkersMap.get(evt.event_id);
+  const icon = createCategoryIcon(evt.category, evt.problem, evt.risk_level, vStat);
+  if (existing) {
+    existing.setIcon(icon);
+  } else if (evt.latitude && evt.longitude) {
+    renderMapMarkers(allEventsCache);
   }
 }
 
@@ -662,34 +967,59 @@ function setupSidebarNavigation() {
 // 9. FILTER LISTENERS
 // ==============================================================================
 function setupFilterListeners() {
-  [filterCategorySelect, filterRiskSelect, filterPrioritySelect, filterStatusSelect, filterReportStatusSelect].forEach(select => {
+  // Verification filter pills
+  if (verificationFilterGroup) {
+    verificationFilterGroup.addEventListener('click', (e) => {
+      const btn = e.target.closest('.vfilter-btn');
+      if (!btn) return;
+      verificationFilterGroup.querySelectorAll('.vfilter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentVerificationFilter = btn.dataset.val;
+      fetchAndRenderEvents();
+    });
+  }
+
+  [filterCategorySelect, filterDepartmentSelect, filterRiskSelect, filterPrioritySelect, filterStatusSelect, filterReportStatusSelect].forEach(select => {
     if (select) select.addEventListener('change', () => fetchAndRenderEvents());
   });
 
   let debounceTimer;
-  filterSearchInput.addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => fetchAndRenderEvents(), 300);
-  });
+  if (filterSearchInput) {
+    filterSearchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchAndRenderEvents(), 300);
+    });
+  }
 
-  clearFiltersBtn.addEventListener('click', () => {
-    filterSearchInput.value = '';
-    filterCategorySelect.value = 'all';
-    filterRiskSelect.value = 'all';
-    filterPrioritySelect.value = 'all';
-    filterStatusSelect.value = 'all';
-    if (filterReportStatusSelect) filterReportStatusSelect.value = 'all';
-    fetchAndRenderEvents();
-  });
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', () => {
+      if (filterSearchInput) filterSearchInput.value = '';
+      if (filterCategorySelect) filterCategorySelect.value = 'all';
+      if (filterDepartmentSelect) filterDepartmentSelect.value = 'all';
+      if (filterRiskSelect) filterRiskSelect.value = 'all';
+      if (filterPrioritySelect) filterPrioritySelect.value = 'all';
+      if (filterStatusSelect) filterStatusSelect.value = 'all';
+      if (filterReportStatusSelect) filterReportStatusSelect.value = 'all';
+      currentVerificationFilter = 'PENDING_REVIEW';
+      if (verificationFilterGroup) {
+        verificationFilterGroup.querySelectorAll('.vfilter-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.val === 'PENDING_REVIEW');
+        });
+      }
+      fetchAndRenderEvents();
+    });
+  }
 
-  refreshEventsBtn.addEventListener('click', async () => {
-    refreshEventsBtn.disabled = true;
-    refreshEventsBtn.textContent = 'Refreshing...';
-    await fetchStats();
-    await fetchAndRenderEvents();
-    refreshEventsBtn.disabled = false;
-    refreshEventsBtn.textContent = '🔄 Refresh Data';
-  });
+  if (refreshEventsBtn) {
+    refreshEventsBtn.addEventListener('click', async () => {
+      refreshEventsBtn.disabled = true;
+      refreshEventsBtn.textContent = 'Refreshing...';
+      await fetchStats();
+      await fetchAndRenderEvents();
+      refreshEventsBtn.disabled = false;
+      refreshEventsBtn.textContent = '🔄 Refresh Data';
+    });
+  }
 
   // Status Changer
   if (detailStatusSelect) {
@@ -717,95 +1047,129 @@ function setupFilterListeners() {
 }
 
 // ==============================================================================
-// 9.1 DEPARTMENT REPORT DISPATCHER
+// 9.1 DEPARTMENT REPORT DISPATCHER (With Confirmation Dialog)
 // ==============================================================================
 function setupReportSender() {
   if (!sendReportBtn) return;
 
-  sendReportBtn.addEventListener('click', async () => {
+  sendReportBtn.addEventListener('click', () => {
     if (!selectedEventId) return;
     const evt = allEventsCache.find(e => e.event_id === selectedEventId);
     if (!evt) return;
 
-    if (evt.report_status === 'SENT') {
-      if (reportFeedback) {
-        reportFeedback.style.display = 'block';
-        reportFeedback.style.background = 'var(--bg-surface)';
-        reportFeedback.style.color = 'var(--color-primary)';
-        reportFeedback.style.border = '1px solid var(--color-primary-border)';
-        reportFeedback.textContent = `Report was already dispatched to ${evt.department || 'department'} (ID: ${evt.report_id || 'SENT'})`;
-      }
+    const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
+    if (vStat !== 'VERIFIED' || evt.is_active === false) {
+      alert(`Cannot dispatch report: Detection candidate must be VERIFIED before reporting (current status: ${vStat}).`);
       return;
     }
 
-    sendReportBtn.disabled = true;
-    if (sendReportSpinner) sendReportSpinner.style.display = 'inline-block';
-    if (sendReportBtnText) sendReportBtnText.textContent = 'Dispatching to Department...';
-    if (reportFeedback) reportFeedback.style.display = 'none';
+    if (evt.report_status === 'SENT') {
+      alert(`Report was already dispatched to ${evt.department || 'department'} (ID: ${evt.report_id || 'SENT'})`);
+      return;
+    }
 
-    try {
-      const notes = reportNotesInput ? reportNotesInput.value.trim() : '';
-      const res = await fetch('/api/admin/reports/send', {
-        method: 'POST',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          event_id: selectedEventId,
-          notes: notes
-        })
-      });
+    // Open supervisor confirmation modal
+    if (confirmModalEventId) confirmModalEventId.textContent = evt.event_id;
+    if (confirmModalProblem) confirmModalProblem.textContent = evt.problem || evt.class_name || 'Pothole';
+    if (confirmModalConf) confirmModalConf.textContent = `${Math.round((evt.confidence || 0) * 100)}%`;
+    if (confirmModalDept) confirmModalDept.textContent = evt.department || 'ROAD MAINTENANCE';
+    if (confirmReportModal) confirmReportModal.style.display = 'flex';
+  });
 
-      const data = await res.json();
+  if (cancelReportBtn) {
+    cancelReportBtn.addEventListener('click', () => {
+      if (confirmReportModal) confirmReportModal.style.display = 'none';
+    });
+  }
 
-      if (res.ok && data.success) {
-        evt.report_status = 'SENT';
-        evt.report_id = data.report_id;
-
-        // Update Drawer State
-        if (detailReportStatusBadge) {
-          detailReportStatusBadge.textContent = 'SENT';
-          detailReportStatusBadge.style.background = 'var(--color-primary-light)';
-          detailReportStatusBadge.style.color = 'var(--color-primary)';
-          detailReportStatusBadge.style.border = '1px solid var(--color-primary-border)';
-        }
-        if (sendReportBtnText) sendReportBtnText.textContent = `✓ Report Sent to ${data.department || 'Dept'} (${data.report_id})`;
-        sendReportBtn.disabled = true;
-        sendReportBtn.style.opacity = '0.75';
-
-        if (reportFeedback) {
-          reportFeedback.style.display = 'block';
-          reportFeedback.style.background = 'var(--color-primary-light)';
-          reportFeedback.style.color = 'var(--color-primary)';
-          reportFeedback.style.border = '1px solid var(--color-primary-border)';
-          reportFeedback.textContent = `✓ Successfully dispatched GIS Report to ${data.department} (ID: ${data.report_id})`;
-        }
-
-        renderEventsTable(allEventsCache);
-        await fetchStats();
-      } else {
-        if (reportFeedback) {
-          reportFeedback.style.display = 'block';
-          reportFeedback.style.background = 'var(--color-offline-bg)';
-          reportFeedback.style.color = 'var(--color-offline)';
-          reportFeedback.style.border = '1px solid var(--color-offline-border)';
-          reportFeedback.textContent = data.error || 'Failed to dispatch report to department';
-        }
-        sendReportBtn.disabled = false;
-        if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+  if (confirmReportModal) {
+    confirmReportModal.addEventListener('click', (e) => {
+      if (e.target === confirmReportModal) {
+        confirmReportModal.style.display = 'none';
       }
-    } catch (err) {
+    });
+  }
+
+  if (confirmSendReportBtn) {
+    confirmSendReportBtn.addEventListener('click', async () => {
+      if (confirmReportModal) confirmReportModal.style.display = 'none';
+      await dispatchReportForSelectedEvent();
+    });
+  }
+}
+
+async function dispatchReportForSelectedEvent() {
+  if (!selectedEventId) return;
+  const evt = allEventsCache.find(e => e.event_id === selectedEventId);
+  if (!evt) return;
+
+  sendReportBtn.disabled = true;
+  if (sendReportSpinner) sendReportSpinner.style.display = 'inline-block';
+  if (sendReportBtnText) sendReportBtnText.textContent = 'Dispatching to Department...';
+  if (reportFeedback) reportFeedback.style.display = 'none';
+
+  try {
+    const notes = reportNotesInput ? reportNotesInput.value.trim() : '';
+    const res = await fetch('/api/admin/reports/send', {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        event_id: selectedEventId,
+        notes: notes
+      })
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      evt.report_status = 'SENT';
+      evt.report_id = data.report_id;
+
+      // Update Drawer State
+      if (detailReportStatusBadge) {
+        detailReportStatusBadge.textContent = 'SENT';
+        detailReportStatusBadge.style.background = 'var(--color-primary-light)';
+        detailReportStatusBadge.style.color = 'var(--color-primary)';
+        detailReportStatusBadge.style.border = '1px solid var(--color-primary-border)';
+      }
+      if (sendReportBtnText) sendReportBtnText.textContent = `✓ Report Dispatched to ${data.department || 'Dept'} (${data.report_id})`;
+      sendReportBtn.disabled = true;
+      sendReportBtn.style.opacity = '0.75';
+
+      if (reportFeedback) {
+        reportFeedback.style.display = 'block';
+        reportFeedback.style.background = 'var(--color-primary-light)';
+        reportFeedback.style.color = 'var(--color-primary)';
+        reportFeedback.style.border = '1px solid var(--color-primary-border)';
+        reportFeedback.textContent = `✓ Successfully dispatched GIS Report to ${data.department} (ID: ${data.report_id})`;
+      }
+
+      renderEventsTable(allEventsCache);
+      await fetchStats();
+    } else {
       if (reportFeedback) {
         reportFeedback.style.display = 'block';
         reportFeedback.style.background = 'var(--color-offline-bg)';
         reportFeedback.style.color = 'var(--color-offline)';
         reportFeedback.style.border = '1px solid var(--color-offline-border)';
-        reportFeedback.textContent = 'Network error while dispatching report';
+        reportFeedback.textContent = data.error || 'Failed to dispatch report to department';
       }
       sendReportBtn.disabled = false;
       if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
-    } finally {
-      if (sendReportSpinner) sendReportSpinner.style.display = 'none';
     }
-  });
+  } catch (err) {
+    if (reportFeedback) {
+      reportFeedback.style.display = 'block';
+      reportFeedback.style.background = 'var(--color-offline-bg)';
+      reportFeedback.style.color = 'var(--color-offline)';
+      reportFeedback.style.border = '1px solid var(--color-offline-border)';
+      reportFeedback.textContent = 'Network error while dispatching report';
+    }
+    sendReportBtn.disabled = false;
+    if (sendReportBtnText) sendReportBtnText.textContent = `📤 Send Report to ${evt.department || 'Department'}`;
+  } finally {
+    if (sendReportSpinner) sendReportSpinner.style.display = 'none';
+  }
 }
 
 // ==============================================================================
@@ -851,6 +1215,45 @@ function setupSocketListeners() {
         selectEventById(event_id, false);
       }
     }
+  });
+
+  // Verification real-time synchronization
+  socket.on('event-verified', ({ event_id, verified_by, verified_at }) => {
+    console.log('[Admin Portal] Real-time event verified:', event_id);
+    const evt = allEventsCache.find(e => e.event_id === event_id);
+    if (evt) {
+      evt.verification_status = 'VERIFIED';
+      evt.is_active = true;
+      evt.verified_by = verified_by;
+      evt.verified_at = verified_at;
+      renderEventsTable(allEventsCache);
+      updateSingleMapMarker(evt);
+      if (selectedEventId === event_id) {
+        selectEventById(event_id, false);
+      }
+    }
+    fetchStats();
+  });
+
+  socket.on('event-rejected', ({ event_id, rejected_by, rejected_at, rejection_reason }) => {
+    console.log('[Admin Portal] Real-time event rejected:', event_id);
+    const evt = allEventsCache.find(e => e.event_id === event_id);
+    if (evt) {
+      evt.verification_status = 'REJECTED';
+      evt.is_active = false;
+      evt.rejected_by = rejected_by;
+      evt.rejected_at = rejected_at;
+      evt.rejection_reason = rejection_reason;
+      updateSingleMapMarker(evt);
+      if (currentVerificationFilter !== 'all' && currentVerificationFilter !== 'REJECTED') {
+        allEventsCache = allEventsCache.filter(e => e.event_id !== event_id);
+      }
+      renderEventsTable(allEventsCache);
+      if (selectedEventId === event_id) {
+        selectEventById(event_id, false);
+      }
+    }
+    fetchStats();
   });
 
   // Real-time listener for dispatched department reports

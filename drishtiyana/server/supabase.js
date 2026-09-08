@@ -320,6 +320,37 @@ async function updateEventStatus(eventId, newStatus) {
 }
 
 /**
+ * Update event verification status on pothole_events (VERIFIED, REJECTED, PENDING_REVIEW)
+ */
+async function updateEventVerificationStatus(eventId, verificationStatus, isActive = true) {
+  if (!isSupabaseConfigured()) {
+    return { success: false, reason: 'unconfigured' };
+  }
+
+  try {
+    const updatePayload = {
+      status: verificationStatus === 'REJECTED' ? 'REJECTED' : (verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'NEW')
+    };
+
+    const { data, error } = await supabase
+      .from('pothole_events')
+      .update(updatePayload)
+      .eq('event_id', eventId)
+      .select();
+
+    if (error) {
+      console.warn('[Supabase] Failed to update event verification status:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (err) {
+    console.error('[Supabase Exception] updateEventVerificationStatus:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Save a structured department incident report to Supabase
  */
 async function saveDepartmentReport(reportData) {
@@ -404,6 +435,7 @@ module.exports = {
   insertPotholeEvent,
   getPotholeEvents,
   updateEventStatus,
+  updateEventVerificationStatus,
   saveDepartmentReport,
   updateEventReportStatus
 };
