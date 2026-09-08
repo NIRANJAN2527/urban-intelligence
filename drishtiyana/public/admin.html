@@ -176,13 +176,16 @@
           <div class="admin-map-card">
             <div class="admin-map-header">
               <div class="admin-map-title">
-                <span>📍</span>
+                <span class="map-title-icon">📍</span>
                 <span>CITY GIS EVENT MAP</span>
                 <span class="badge badge-primary" id="mapEventCountBadge" style="font-size: 0.75rem;">0 pins</span>
               </div>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <button id="recenterAdminMapBtn" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" type="button">
-                  🎯 Recenter Map
+                <button id="fitAllEventsBtn" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" type="button" title="Fit all active events in view">
+                  🌐 Fit All Events
+                </button>
+                <button id="recenterAdminMapBtn" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" type="button" title="Reset map to city center">
+                  🎯 Recenter
                 </button>
                 <button id="refreshEventsBtn" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" type="button">
                   🔄 Refresh Data
@@ -208,147 +211,191 @@
             <div class="detail-body" id="detailBody">
               <!-- Placeholder when no event selected -->
               <div class="detail-placeholder" id="detailPlaceholder">
-                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🗺️</div>
-                <strong>Click any map marker or table row</strong>
-                <p style="font-size: 0.8rem; margin-top: 0.35rem; color: var(--text-muted);">
-                  Complete telemetry, confidence, risk score, physical evidence image, and department assignment will appear here.
+                <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🗺️</div>
+                <strong>Select any map marker or table row</strong>
+                <p style="font-size: 0.8rem; margin-top: 0.4rem; color: var(--text-muted); line-height: 1.45;">
+                  Comprehensive GIS telemetry, AI confidence, verification status, physical evidence, and municipal assignment will appear here.
                 </p>
               </div>
 
               <!-- Content populated when event selected -->
-              <div id="detailContent" style="display: none; flex-direction: column; gap: 0.85rem;">
-                <!-- AI Detection Candidate Evaluation Banner & Review Actions -->
-                <div id="detailVerificationBanner" class="verification-banner pending">
-                  <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700;">
-                    <span id="detailBannerTitle">⚠️ AI DETECTION CANDIDATE</span>
-                    <span id="detailBannerBadge" class="badge-v-pending">⏳ PENDING REVIEW</span>
+              <div id="detailContent" style="display: none; flex-direction: column; gap: 0.95rem;">
+                
+                <!-- SECTION 1: VERIFICATION & SUPERVISOR TRIAGE -->
+                <div class="detail-section">
+                  <div class="detail-section-title">
+                    <span>🛡️</span>
+                    <span>HUMAN VERIFICATION GATEWAY</span>
                   </div>
-                  <div id="detailBannerDesc" style="font-size: 0.74rem;">
-                    This detection is an automated AI candidate. A human supervisor must verify and approve it before it can be dispatched to municipal departments.
+                  <div id="detailVerificationBanner" class="verification-banner pending">
+                    <div style="display: flex; align-items: center; justify-content: space-between; font-weight: 700;">
+                      <span id="detailBannerTitle">⚠️ AI DETECTION CANDIDATE</span>
+                      <span id="detailBannerBadge" class="badge-v-pending">⏳ PENDING REVIEW</span>
+                    </div>
+                    <div id="detailBannerDesc" style="font-size: 0.74rem;">
+                      This detection is an automated AI candidate. A human supervisor must verify and approve it before dispatching to municipal departments.
+                    </div>
+                    <!-- Review Action Buttons -->
+                    <div style="display: flex; gap: 0.5rem; margin-top: 0.35rem;">
+                      <button id="verifyEventBtn" type="button" class="btn-verify" style="flex: 1;" title="Confirm and verify this detection as genuine">
+                        <span>✓</span>
+                        <span>VERIFY DETECTION</span>
+                      </button>
+                      <button id="rejectEventBtn" type="button" class="btn-reject" style="flex: 1;" title="Mark as false positive / discard from active map">
+                        <span>✕</span>
+                        <span>REJECT / FALSE POSITIVE</span>
+                      </button>
+                    </div>
                   </div>
-                  <!-- Review Action Buttons -->
-                  <div style="display: flex; gap: 0.5rem; margin-top: 0.35rem;">
-                    <button id="verifyEventBtn" type="button" class="btn-verify" style="flex: 1;" title="Confirm and verify this detection">
-                      <span>✓</span>
-                      <span>VERIFY DETECTION</span>
+                </div>
+
+                <!-- SECTION 2: PHYSICAL EVIDENCE -->
+                <div class="detail-section">
+                  <div class="detail-section-title">
+                    <span>📷</span>
+                    <span>PHYSICAL EVIDENCE FRAME</span>
+                  </div>
+                  <div class="detail-evidence-frame">
+                    <img id="detailEvidenceImg" src="" alt="Best Evidence Frame" class="detail-evidence-img" title="Click to view full image in high resolution">
+                    <div id="detailEvidenceUnavailable" style="display: none; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.85rem; gap: 0.35rem; width: 100%; height: 100%;">
+                      <span style="font-size: 1.8rem; opacity: 0.6;">📷</span>
+                      <span style="font-weight: 500;">Evidence frame unavailable</span>
+                    </div>
+                    <div class="edge-evidence-tag" id="detailEvidenceTag">BEST CANDIDATE FRAME</div>
+                  </div>
+                </div>
+
+                <!-- SECTION 3: DETECTION ATTRIBUTES -->
+                <div class="detail-section">
+                  <div class="detail-section-title">
+                    <span>🧠</span>
+                    <span>AI DETECTION & TAXONOMY</span>
+                  </div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.65rem;">
+                    <span id="detailCategoryBadge" class="badge badge-primary">Road & Infrastructure</span>
+                  </div>
+                  <div class="detail-item-grid">
+                    <div class="detail-item">
+                      <span class="detail-item-label">EVENT ID</span>
+                      <span class="detail-item-val" id="detailEvtId">--</span>
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-item-label">AI CONFIDENCE</span>
+                      <span class="detail-item-val" id="detailConf" style="color: var(--color-primary); font-weight: 700;">--</span>
+                    </div>
+                    <div class="detail-item full-width">
+                      <span class="detail-item-label">PROBLEM TYPE</span>
+                      <span class="detail-item-val" id="detailProblem" style="font-weight: 700; color: var(--text-primary);">Pothole</span>
+                    </div>
+                    <div class="detail-item full-width">
+                      <span class="detail-item-label">OBSERVATIONS & REASONING</span>
+                      <span class="detail-item-val" id="detailObservations">--</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- SECTION 4: RISK & PRIORITY -->
+                <div class="detail-section">
+                  <div class="detail-section-title">
+                    <span>⚡</span>
+                    <span>RISK & PRIORITY ASSESSMENT</span>
+                  </div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.65rem;">
+                    <span id="detailRiskBadge" class="badge badge-risk-high">RISK: HIGH (78)</span>
+                    <span id="detailPriorityBadge" class="badge badge-risk-high">PRIORITY: HIGH</span>
+                  </div>
+                  <div class="detail-status-row">
+                    <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">WORKFLOW STATUS:</span>
+                    <select id="detailStatusSelect" class="filter-select" style="font-size: 0.8rem; padding: 0.35rem 0.65rem;">
+                      <option value="NEW">NEW</option>
+                      <option value="ASSIGNED">ASSIGNED</option>
+                      <option value="IN_PROGRESS">IN_PROGRESS</option>
+                      <option value="RESOLVED">RESOLVED</option>
+                      <option value="CLOSED">CLOSED</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- SECTION 5: GIS LOCATION & TELEMETRY -->
+                <div class="detail-section">
+                  <div class="detail-section-title">
+                    <span>📍</span>
+                    <span>LOCATION & SENSOR TELEMETRY</span>
+                  </div>
+                  <div class="detail-item-grid">
+                    <div class="detail-item full-width">
+                      <span class="detail-item-label">LOCATION ADDRESS / REVERSE GEOCODE</span>
+                      <span class="detail-item-val" id="detailAddress" style="font-family: var(--font-sans); font-size: 0.82rem; font-weight: 500;">
+                        Resolving address...
+                      </span>
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-item-label">LATITUDE</span>
+                      <span class="detail-item-val" id="detailLat">--</span>
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-item-label">LONGITUDE</span>
+                      <span class="detail-item-val" id="detailLon">--</span>
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-item-label">BUS ID</span>
+                      <span class="detail-item-val" id="detailBusId">BUS-101</span>
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-item-label">CAMERA ID</span>
+                      <span class="detail-item-val" id="detailCameraId">CAM-01</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- SECTION 6: TIMING & SESSION TRACEABILITY -->
+                <div class="detail-section">
+                  <div class="detail-section-title">
+                    <span>🕒</span>
+                    <span>TIMING & TRACEABILITY</span>
+                  </div>
+                  <div class="detail-item-grid">
+                    <div class="detail-item full-width">
+                      <span class="detail-item-label">DETECTED TIME (UTC)</span>
+                      <span class="detail-item-val" id="detailDetectedTime" style="font-size: 0.8rem;">--</span>
+                    </div>
+                    <div class="detail-item full-width">
+                      <span class="detail-item-label">SESSION ID</span>
+                      <span class="detail-item-val" id="detailSessionId" style="font-size: 0.76rem; font-family: var(--font-mono);">--</span>
+                    </div>
+                    <div class="detail-item full-width">
+                      <span class="detail-item-label">WORK ORDER REFERENCE</span>
+                      <span class="detail-item-val" id="detailWorkOrder" style="color: var(--text-muted); font-size: 0.8rem;">Not Assigned</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- SECTION 7: DEPARTMENT DISPATCH -->
+                <div class="detail-section">
+                  <div class="report-action-card">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
+                      <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em;">🏢 MUNICIPAL DISPATCH</span>
+                      <span class="badge" id="detailReportStatusBadge" style="font-size: 0.7rem;">PENDING</span>
+                    </div>
+                    <div id="reportLockNotice" style="display: none; font-size: 0.74rem; color: #92400e; background: #fef3c7; border: 1.5px solid #d97706; padding: 0.45rem 0.65rem; border-radius: 6px; margin-bottom: 0.5rem; line-height: 1.4;">
+                      🔒 <strong>Dispatch Locked:</strong> Detection candidate must be evaluated and marked as <strong>VERIFIED</strong> before forwarding to department.
+                    </div>
+                    <p style="font-size: 0.74rem; color: var(--text-secondary); margin: 0 0 0.5rem 0; line-height: 1.4;">
+                      Forward GIS telemetry, physical evidence image, and severity metrics to the designated authority:
+                    </p>
+                    <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                      <span>🏢 Target Department:</span>
+                      <span id="detailDispatchDept" style="color: var(--color-primary);">ROAD MAINTENANCE</span>
+                    </div>
+                    <input type="text" id="reportNotesInput" placeholder="Add optional dispatch notes / instructions..." style="width: 100%; box-sizing: border-box; font-size: 0.78rem; padding: 0.45rem 0.65rem; border: 1.5px solid var(--border-card-dark); border-radius: 6px; margin-bottom: 0.5rem; outline: none; background: #fff;">
+                    <button id="sendReportBtn" type="button" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-size: 0.84rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 0.45rem; cursor: pointer;">
+                      <span id="sendReportSpinner" class="spinner" style="display: none; width: 13px; height: 13px; border-width: 2px;"></span>
+                      <span id="sendReportBtnText">📤 Send Report to Department</span>
                     </button>
-                    <button id="rejectEventBtn" type="button" class="btn-reject" style="flex: 1;" title="Mark as false positive / discard from active map">
-                      <span>✕</span>
-                      <span>REJECT / FALSE POSITIVE</span>
-                    </button>
+                    <div id="reportFeedback" style="display: none; margin-top: 0.5rem; font-size: 0.75rem; padding: 0.45rem 0.65rem; border-radius: 6px; line-height: 1.35;"></div>
                   </div>
                 </div>
 
-                <!-- Evidence Image -->
-                <div class="detail-evidence-frame">
-                  <img id="detailEvidenceImg" src="" alt="Best Evidence Frame" class="detail-evidence-img" title="Click to view full image">
-                  <div id="detailEvidenceUnavailable" style="display: none; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.85rem; gap: 0.35rem; width: 100%; height: 100%;">
-                    <span style="font-size: 1.8rem; opacity: 0.6;">📷</span>
-                    <span style="font-weight: 500;">Evidence unavailable</span>
-                  </div>
-                  <div class="edge-evidence-tag" id="detailEvidenceTag">BEST CANDIDATE FRAME</div>
-                </div>
-
-                <!-- Badges Row -->
-                <div style="display: flex; flex-wrap: wrap; gap: 0.45rem;">
-                  <span id="detailCategoryBadge" class="badge badge-primary">Road & Infrastructure</span>
-                  <span id="detailRiskBadge" class="badge badge-risk-high">RISK: HIGH (78)</span>
-                  <span id="detailPriorityBadge" class="badge badge-risk-high">PRIORITY: HIGH</span>
-                </div>
-
-                <!-- Attributes Grid -->
-                <div class="detail-item-grid">
-                  <div class="detail-item">
-                    <span class="detail-item-label">EVENT ID</span>
-                    <span class="detail-item-val" id="detailEvtId">--</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">CONFIDENCE</span>
-                    <span class="detail-item-val" id="detailConf" style="color: var(--color-primary);">--</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">PROBLEM TYPE</span>
-                    <span class="detail-item-val" id="detailProblem">Pothole</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">OBSERVATIONS</span>
-                    <span class="detail-item-val" id="detailObservations">--</span>
-                  </div>
-                  <div class="detail-item full-width">
-                    <span class="detail-item-label">RESPONSIBLE DEPARTMENT</span>
-                    <span class="detail-item-val" id="detailDepartment" style="color: var(--color-primary);">ROAD MAINTENANCE</span>
-                  </div>
-                  <div class="detail-item full-width">
-                    <span class="detail-item-label">LOCATION ADDRESS</span>
-                    <span class="detail-item-val" id="detailAddress" style="font-family: var(--font-sans); font-size: 0.82rem; font-weight: 500;">
-                      Resolving address...
-                    </span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">LATITUDE</span>
-                    <span class="detail-item-val" id="detailLat">--</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">LONGITUDE</span>
-                    <span class="detail-item-val" id="detailLon">--</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">BUS ID</span>
-                    <span class="detail-item-val" id="detailBusId">BUS-101</span>
-                  </div>
-                  <div class="detail-item">
-                    <span class="detail-item-label">CAMERA ID</span>
-                    <span class="detail-item-val" id="detailCameraId">CAM-01</span>
-                  </div>
-                  <div class="detail-item full-width">
-                    <span class="detail-item-label">DETECTED TIME (UTC)</span>
-                    <span class="detail-item-val" id="detailDetectedTime" style="font-size: 0.8rem;">--</span>
-                  </div>
-                  <div class="detail-item full-width">
-                    <span class="detail-item-label">SESSION ID</span>
-                    <span class="detail-item-val" id="detailSessionId" style="font-size: 0.78rem;">--</span>
-                  </div>
-                  <div class="detail-item full-width">
-                    <span class="detail-item-label">WORK ORDER</span>
-                    <span class="detail-item-val" id="detailWorkOrder" style="color: var(--text-muted); font-size: 0.8rem;">Not Assigned</span>
-                  </div>
-                </div>
-
-                <!-- Status Update Row -->
-                <div style="margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--bg-card-border); display: flex; align-items: center; justify-content: space-between;">
-                  <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">EVENT STATUS:</span>
-                  <select id="detailStatusSelect" class="filter-select" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">
-                    <option value="NEW">NEW</option>
-                    <option value="ASSIGNED">ASSIGNED</option>
-                    <option value="IN_PROGRESS">IN_PROGRESS</option>
-                    <option value="RESOLVED">RESOLVED</option>
-                    <option value="CLOSED">CLOSED</option>
-                  </select>
-                </div>
-
-                <!-- Department Dispatch Action Card -->
-                <div class="report-action-card" style="margin-top: 0.85rem; padding: 0.85rem; background: var(--bg-surface); border: 1px solid var(--color-primary-border); border-radius: var(--radius-sm);">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
-                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-primary); letter-spacing: 0.04em;">DEPARTMENT DISPATCH</span>
-                    <span class="badge" id="detailReportStatusBadge" style="font-size: 0.7rem;">PENDING</span>
-                  </div>
-                  <div id="reportLockNotice" style="display: none; font-size: 0.74rem; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 0.4rem 0.6rem; border-radius: 4px; margin-bottom: 0.5rem; line-height: 1.35;">
-                    🔒 <strong>Dispatch Locked:</strong> Detection candidate must be evaluated and marked as <strong>VERIFIED</strong> before forwarding to department.
-                  </div>
-                  <p style="font-size: 0.74rem; color: var(--text-secondary); margin: 0 0 0.5rem 0; line-height: 1.4;">
-                    Forward GIS telemetry, physical evidence image, and severity metrics to the responsible authority:
-                  </p>
-                  <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
-                    <span>🏢 Target:</span>
-                    <span id="detailDispatchDept" style="color: var(--color-primary);">ROAD MAINTENANCE</span>
-                  </div>
-                  <input type="text" id="reportNotesInput" placeholder="Add optional dispatch notes..." style="width: 100%; box-sizing: border-box; font-size: 0.78rem; padding: 0.4rem 0.6rem; border: 1px solid var(--bg-card-border); border-radius: 4px; margin-bottom: 0.5rem; outline: none; background: #fff;">
-                  <button id="sendReportBtn" type="button" class="btn btn-primary" style="width: 100%; padding: 0.5rem; font-size: 0.82rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.4rem; cursor: pointer;">
-                    <span id="sendReportSpinner" class="spinner" style="display: none; width: 12px; height: 12px; border-width: 2px;"></span>
-                    <span id="sendReportBtnText">📤 Send Report to Department</span>
-                  </button>
-                  <div id="reportFeedback" style="display: none; margin-top: 0.5rem; font-size: 0.75rem; padding: 0.4rem 0.6rem; border-radius: 4px; line-height: 1.3;"></div>
-                </div>
               </div>
             </div>
           </div>

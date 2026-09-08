@@ -30,11 +30,12 @@ async function runTests() {
 
   // 2. Ingest AI Candidate Event (Default verification_status)
   console.log('2. Ingesting AI detection candidate into Edge pipeline...');
-  const eventId1 = `EVT-TEST-REVIEW-${Date.now()}-1`;
+  const now = Date.now();
+  const eventId1 = `EVT-TEST-REVIEW-${now}-1`;
   const candidatePayload = {
     event_id: eventId1,
-    candidate_id: 'CAND-V1',
-    session_id: 'SESSION-VERIF-TEST',
+    candidate_id: `CAND-V1-${now}`,
+    session_id: `SESSION-VERIF-TEST-${now}`,
     bus_id: 'BUS-101',
     class_name: 'Pothole',
     confidence: 0.912, // 91.2% confidence preserved
@@ -109,14 +110,15 @@ async function runTests() {
 
   // 7. Test Rejection Workflow (False positive candidate)
   console.log('7. Ingesting second candidate to test REJECT / False Positive workflow...');
-  const eventId2 = `EVT-TEST-REJECT-${Date.now()}-2`;
+  const now2 = Date.now() + 10;
+  const eventId2 = `EVT-TEST-REVIEW-${now2}-2`;
   await fetch(`${BASE_URL}/api/edge/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       event_id: eventId2,
-      candidate_id: 'CAND-V2',
-      session_id: 'SESSION-VERIF-TEST-2',
+      candidate_id: `CAND-V2-${now2}`,
+      session_id: `SESSION-VERIF-TEST-2-${now2}`,
       bus_id: 'BUS-102',
       class_name: 'Pothole',
       confidence: 0.54,

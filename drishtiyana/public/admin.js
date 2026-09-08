@@ -108,6 +108,7 @@ const filterReportStatusSelect = document.getElementById('filterReportStatusSele
 const clearFiltersBtn = document.getElementById('clearFiltersBtn');
 const refreshEventsBtn = document.getElementById('refreshEventsBtn');
 const recenterAdminMapBtn = document.getElementById('recenterAdminMapBtn');
+const fitAllEventsBtn = document.getElementById('fitAllEventsBtn');
 
 // DOM Elements - Table
 const eventsTableBody = document.getElementById('eventsTableBody');
@@ -213,28 +214,115 @@ function initGisMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
   }).addTo(leafletMap);
 
+  // Add On-Map Interactive Legend
+  const legendControl = L.control({ position: 'bottomleft' });
+  legendControl.onAdd = function() {
+    const div = L.DomUtil.create('div', 'gis-map-legend');
+    div.innerHTML = `
+      <div class="gis-map-legend-title">
+        <span>🗺️ GIS DEFECT LEGEND</span>
+      </div>
+      <div class="gis-legend-row">
+        <span class="gis-legend-icon">🕳️</span>
+        <span><strong>Pothole / Road Damage</strong></span>
+      </div>
+      <div class="gis-legend-row">
+        <span class="gis-legend-icon">🌊</span>
+        <span><strong>Waterlogging / Drainage</strong></span>
+      </div>
+      <div class="gis-legend-row">
+        <span class="gis-legend-icon">🚧</span>
+        <span><strong>Divider / Zebra / Sign</strong></span>
+      </div>
+      <div class="gis-legend-row">
+        <span class="gis-legend-icon">🚦</span>
+        <span><strong>Traffic / Congestion</strong></span>
+      </div>
+      <div class="gis-legend-row">
+        <span class="gis-legend-icon">🛡️</span>
+        <span><strong>Safety Risk / Incident</strong></span>
+      </div>
+      <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(30,41,59,0.25); font-size: 11px;">
+        <div class="gis-legend-row">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#D97706; border:1px solid #78350F; margin-right:2px;"></span>
+          <span>⏳ <strong>Candidate (Pending)</strong></span>
+        </div>
+        <div class="gis-legend-row">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#15803D; border:1px solid #14532D; margin-right:2px;"></span>
+          <span>✓ <strong>Verified Defect</strong></span>
+        </div>
+      </div>
+    `;
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  legendControl.addTo(leafletMap);
+
+  // Map Controls Event Listeners
   if (recenterAdminMapBtn) {
     recenterAdminMapBtn.addEventListener('click', () => {
       fitMapToMarkers();
     });
   }
 
-  setTimeout(() => leafletMap.invalidateSize(), 400);
+  if (fitAllEventsBtn) {
+    fitAllEventsBtn.addEventListener('click', () => {
+      fitMapToMarkers();
+    });
+  }
+
+  // CRITICAL FIX: ResizeObserver on map container guarantees full height without blank lower half
+  const mapContainer = document.getElementById('adminGisMap');
+  if (window.ResizeObserver && mapContainer) {
+    const resizeObserver = new ResizeObserver(() => {
+      if (leafletMap) {
+        leafletMap.invalidateSize();
+      }
+    });
+    resizeObserver.observe(mapContainer);
+  }
+
+  window.addEventListener('resize', () => {
+    if (leafletMap) leafletMap.invalidateSize();
+  });
+
+  setTimeout(() => {
+    if (leafletMap) leafletMap.invalidateSize();
+  }, 350);
 }
 
 function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
   let catClass = 'road';
+  let subClass = '';
   let iconEmoji = '🚧';
 
   const catNorm = (category || '').toLowerCase();
   const probNorm = (problem || '').toLowerCase();
 
+  // ROAD & INFRASTRUCTURE CATEGORIES
   if (probNorm.includes('pothole')) {
+    catClass = 'road';
+    subClass = 'pothole';
     iconEmoji = '🕳️';
-  } else if (catNorm.includes('traffic') || probNorm.includes('traffic') || probNorm.includes('congestion') || probNorm.includes('signal')) {
+  } else if (probNorm.includes('water') || probNorm.includes('flood') || probNorm.includes('drain')) {
+    catClass = 'road';
+    subClass = 'waterlogging';
+    iconEmoji = '🌊';
+  } else if (probNorm.includes('divider') || probNorm.includes('median')) {
+    catClass = 'road';
+    iconEmoji = '🚧';
+  } else if (probNorm.includes('zebra') || probNorm.includes('crossing')) {
+    catClass = 'road';
+    iconEmoji = '🚸';
+  } else if (probNorm.includes('sign') || probNorm.includes('board')) {
+    catClass = 'road';
+    iconEmoji = '🪧';
+  } else if (catNorm.includes('traffic') || probNorm.includes('traffic') || probNorm.includes('congestion') || probNorm.includes('bottleneck') || probNorm.includes('density') || probNorm.includes('signal')) {
+    // TRAFFIC CATEGORIES
     catClass = 'traffic';
     iconEmoji = '🚦';
-  } else if (catNorm.includes('safety') || probNorm.includes('pedestrian') || probNorm.includes('rash') || probNorm.includes('accident')) {
+  } else if (catNorm.includes('safety') || probNorm.includes('pedestrian') || probNorm.includes('rash') || probNorm.includes('accident') || probNorm.includes('hit-and-run') || probNorm.includes('hazard')) {
+    // SAFETY CATEGORIES
     catClass = 'safety';
     iconEmoji = '🛡️';
   }
@@ -252,14 +340,14 @@ function createCategoryIcon(category, problem, riskLevel, verificationStatus) {
   return L.divIcon({
     className: 'gis-marker-container',
     html: `
-      <div class="gis-marker-pin ${catClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Defect'} (${vStat})">
+      <div class="gis-marker-pin ${catClass} ${subClass} ${vClass} ${isCritical ? 'critical' : ''}" title="${problem || 'Defect'} (${vStat})">
         ${iconEmoji}
         ${vBadgeHtml}
       </div>
     `,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    popupAnchor: [0, -18]
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+    popupAnchor: [0, -19]
   });
 }
 
@@ -270,7 +358,7 @@ function fitMapToMarkers() {
   }
 
   const group = L.featureGroup(Array.from(mapMarkersMap.values()));
-  leafletMap.fitBounds(group.getBounds().pad(0.2));
+  leafletMap.fitBounds(group.getBounds().pad(0.18));
 }
 
 // ==============================================================================
@@ -394,33 +482,64 @@ function renderMapMarkers(events) {
 
     const confPct = Math.round((evt.confidence || 0) * 100);
     const dateFormatted = evt.created_at ? new Date(evt.created_at).toLocaleString() : 'N/A';
-    const locFormatted = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    const coordsFormatted = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    
+    // Address if available in event or cache; else fallback strictly to real coordinates (no fabrication)
+    const cachedAddress = clientAddressCache.get(`${lat.toFixed(6)},${lon.toFixed(6)}`) || evt.address;
+    const locationDisplay = cachedAddress || coordsFormatted;
 
     const imgHtml = evt.evidence_image_url
-      ? `<img src="${evt.evidence_image_url}" onerror="this.outerHTML='<div style=\\'background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;\\'>Evidence unavailable</div>'" style="width: 100%; height: 95px; object-fit: cover; border-radius: 6px; margin-bottom: 6px;">`
-      : `<div style="background:#f1f5f9;color:#64748b;padding:8px;border-radius:6px;font-size:11px;text-align:center;margin-bottom:6px;">Evidence unavailable</div>`;
+      ? `<div style="position: relative; width: 100%; height: 105px; border-radius: 6px; overflow: hidden; margin-bottom: 8px; border: 1.5px solid #1E293B; background: #0F172A;">
+           <img src="${evt.evidence_image_url}" onerror="this.outerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#94a3b8;font-size:11px;\\'>Evidence unavailable</div>'" style="width: 100%; height: 100%; object-fit: cover;">
+           <span style="position: absolute; bottom: 4px; left: 4px; background: rgba(15,23,42,0.85); color: #fff; font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px;">AI DETECTION</span>
+         </div>`
+      : `<div style="background: #F1F5F9; color: #64748B; padding: 10px; border-radius: 6px; font-size: 11px; text-align: center; margin-bottom: 8px; border: 1px solid #CBD5E1;">📷 Physical evidence frame unavailable</div>`;
 
     const vBadgeStyle = vStat === 'VERIFIED'
-      ? 'background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC;'
-      : 'background: #FEF3C7; color: #B45309; border: 1px solid #FDE68A;';
+      ? 'background: #DCFCE7; color: #15803D; border: 1.5px solid #16A34A;'
+      : 'background: #FEF3C7; color: #B45309; border: 1.5px solid #D97706;';
+
+    const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
+    const prio = (evt.priority || 'MEDIUM').toUpperCase();
 
     marker.bindPopup(`
-      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 215px; line-height: 1.45;">
+      <div style="font-family: var(--font-sans, sans-serif); font-size: 12px; min-width: 230px; max-width: 280px; line-height: 1.45; color: #1E293B;">
         ${imgHtml}
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-          <strong style="color: var(--color-primary, #15803D); font-size: 13px;">${evt.problem || evt.class_name || 'Pothole'}</strong>
-          <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; ${vBadgeStyle}">${vStat}</span>
+        
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 4px;">
+          <div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.04em;">${evt.category || 'Road & Infrastructure'}</div>
+            <strong style="color: #0F172A; font-size: 14px; display: block;">${evt.problem || evt.class_name || 'Pothole'}</strong>
+          </div>
+          <span style="font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 4px; white-space: nowrap; ${vBadgeStyle}">
+            ${vStat === 'VERIFIED' ? '✓ VERIFIED' : '⏳ PENDING'}
+          </span>
         </div>
-        <div style="color: #475569; font-size: 11px; margin-bottom: 4px;">
-          AI Confidence: <strong style="color: var(--color-primary);">${confPct}%</strong>
+
+        <div style="background: #F8FAFC; border: 1px solid rgba(30,41,59,0.18); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+            <span style="color: #64748B;">AI Confidence:</span>
+            <strong style="color: #15803D; font-weight: 800;">${confPct}%</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+            <span style="color: #64748B;">Risk / Priority:</span>
+            <strong>${rLvl} / ${prio}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748B;">Event ID:</span>
+            <span style="font-family: var(--font-mono); font-size: 10px; color: #334155;">${evt.event_id || '--'}</span>
+          </div>
         </div>
-        <div style="font-size: 11px; color: #334155; margin-bottom: 8px;">
-          <div>🕒 <strong>Date/Time:</strong> ${dateFormatted}</div>
-          <div>📍 <strong>Location:</strong> ${locFormatted}</div>
-          <div>🏢 <strong>Dept:</strong> ${evt.department || 'ROAD MAINTENANCE'}</div>
+
+        <div style="font-size: 11px; color: #334155; margin-bottom: 8px; line-height: 1.5;">
+          <div>📍 <strong>Location:</strong> ${locationDisplay}</div>
+          <div>🕒 <strong>Time (UTC):</strong> ${dateFormatted}</div>
+          <div>🚌 <strong>Bus / Unit:</strong> ${evt.bus_id || 'BUS-101'}${evt.session_id ? ' (' + evt.session_id.substring(0, 10) + '...)' : ''}</div>
+          <div>🏢 <strong>Department:</strong> ${evt.department || 'ROAD MAINTENANCE'}</div>
         </div>
-        <button onclick="selectEventById('${evt.event_id}')" style="width: 100%; padding: 6px 10px; background: #15803D; color: #fff; border: none; border-radius: 4px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-          <span>🔍</span> [ VIEW DETAILS ]
+
+        <button onclick="selectEventById('${evt.event_id}')" style="width: 100%; padding: 7px 10px; background: #15803D; color: #ffffff; border: 1.5px solid #14532D; border-radius: 6px; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 2px 5px rgba(21,128,61,0.25);">
+          <span>🔍</span> [ VIEW FULL DETAILS ]
         </button>
       </div>
     `);
@@ -543,6 +662,11 @@ async function selectEventById(eventId, panMap = true) {
       leafletMap.setView(marker.getLatLng(), Math.max(leafletMap.getZoom(), 15), { animate: true });
     }
     marker.openPopup();
+  }
+
+  // Ensure Leaflet recomputes geometry if details panel expanded
+  if (leafletMap) {
+    setTimeout(() => leafletMap.invalidateSize(), 200);
   }
 
   // Populate Details Panel
