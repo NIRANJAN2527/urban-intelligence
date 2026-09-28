@@ -67,7 +67,7 @@ function postEdgeEvent(baseUrl, fields, imageBuffer = null) {
     }
 
     if (imageBuffer) {
-      parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="evidence"; filename="frame.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`);
+      parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="evidence_image"; filename="frame.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`);
     }
 
     const preBuffer = Buffer.from(parts.join(''), 'utf8');
@@ -137,11 +137,11 @@ async function runConfidenceSuite() {
     problem: 'Pothole'
   }, dummyJpeg);
 
-  if (t1Res.json?.status === 'ACCEPTED' && t1Res.json?.event?.status === 'ACCEPTED' && t1Res.json?.event?.verification_status === 'ACCEPTED') {
-    console.log(`   [PASS] Detection with confidence 0.95 auto-accepted without verification! (status: ${t1Res.json.event.status})`);
+  if (t1Res.json?.success && t1Res.json?.action === 'CREATED' && t1Res.json?.verification_status === 'ACCEPTED') {
+    console.log(`   [PASS] Detection with confidence 0.95 auto-accepted without verification! (status: ${t1Res.json.verification_status})`);
     passed++;
   } else {
-    throw new Error(`TEST 1 Failed: ${JSON.stringify(t1Res.json)}`);
+    throw new Error(`TEST 1 Failed: ${JSON.stringify(t1Res.json)} body: ${t1Res.body}`);
   }
 
   // TEST 2: confidence = 0.91 -> ACCEPTED
@@ -157,8 +157,8 @@ async function runConfidenceSuite() {
     problem: 'Pothole'
   }, dummyJpeg);
 
-  if (t2Res.json?.status === 'ACCEPTED' && t2Res.json?.event?.status === 'ACCEPTED') {
-    console.log(`   [PASS] Detection with confidence 0.91 auto-accepted! (status: ${t2Res.json.event.status})`);
+  if (t2Res.json?.success && t2Res.json?.action === 'CREATED' && t2Res.json?.verification_status === 'ACCEPTED') {
+    console.log(`   [PASS] Detection with confidence 0.91 auto-accepted! (status: ${t2Res.json.verification_status})`);
     passed++;
   } else {
     throw new Error(`TEST 2 Failed: ${JSON.stringify(t2Res.json)}`);
@@ -177,8 +177,8 @@ async function runConfidenceSuite() {
     problem: 'Pothole'
   }, dummyJpeg);
 
-  if (t3Res.json?.status === 'ACCEPTED' && t3Res.json?.event?.status === 'ACCEPTED') {
-    console.log(`   [PASS] Exact boundary 0.80 auto-accepted! (status: ${t3Res.json.event.status})`);
+  if (t3Res.json?.success && t3Res.json?.action === 'CREATED' && t3Res.json?.verification_status === 'ACCEPTED') {
+    console.log(`   [PASS] Exact boundary 0.80 auto-accepted! (status: ${t3Res.json.verification_status})`);
     passed++;
   } else {
     throw new Error(`TEST 3 Failed: ${JSON.stringify(t3Res.json)}`);
@@ -197,7 +197,7 @@ async function runConfidenceSuite() {
     problem: 'Pothole'
   }, dummyJpeg);
 
-  if (t4Res.json?.action === 'IGNORED' && t4Res.json?.status === 'IGNORED') {
+  if (t4Res.json?.action === 'IGNORED') {
     console.log(`   [PASS] Detection with 0.799 was completely discarded by backend! (action: ${t4Res.json.action})`);
     passed++;
   } else {
@@ -230,10 +230,12 @@ async function runConfidenceSuite() {
   const sameEventId = `EVT-DEDUP-${Date.now()}`;
   const confSteps = [0.88, 0.89, 0.91, 0.85, 0.87];
 
-  for (const c of confSteps) {
+  for (let i = 0; i < confSteps.length; i++) {
+    const c = confSteps[i];
     await postEdgeEvent(baseUrl, {
-      event_id: sameEventId,
+      event_id: i === 0 ? sameEventId : `EVT-DEDUP-FRAME-${i}-${Date.now()}`,
       candidate_id: sameCandidateId,
+      session_id: 'SESSION-DEDUP-TEST',
       class_name: 'Pothole',
       confidence: c.toString(),
       latitude: '17.391000',
