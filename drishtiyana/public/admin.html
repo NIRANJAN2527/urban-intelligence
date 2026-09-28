@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DRISHTIYANA — City Command Center</title>
+  <meta name="description" content="City-wide urban intelligence and municipal incident management from the DrishtiYana mobile sensing network.">
+
+  <!-- Inter & JetBrains Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Leaflet GIS Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  
+  <!-- Synchro-Inspired Command Center Stylesheet -->
+  <link rel="stylesheet" href="admin.css">
+
+  <!-- Socket.IO & Leaflet JS & Supabase JS SDK -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- ============================================================================== -->
+  <!-- 1. TOP HORIZONTAL NAVIGATION (MINIMAL, 68px, NO SIDEBAR, NO EMOJIS)             -->
+  <!-- ============================================================================== -->
+  <header class="admin-navbar">
+    <div class="navbar-left">
+      <a href="/admin" class="admin-brand">
+        <span class="brand-text">DRISHTIYANA</span>
+      </a>
+    </div>
+
+    <!-- Center Category & View Navigation -->
+    <nav class="admin-nav-links" id="adminNavLinks">
+      <button class="nav-link active" data-view="overview" id="navBtn-overview" type="button">
+        Overview
+      </button>
+      <button class="nav-link" data-view="road" id="navBtn-road" type="button">
+        Road &amp; Infrastructure
+      </button>
+      <button class="nav-link" data-view="traffic" id="navBtn-traffic" type="button">
+        Traffic
+      </button>
+      <button class="nav-link" data-view="safety" id="navBtn-safety" type="button">
+        Safety
+      </button>
+      <button class="nav-link" data-view="events" id="navBtn-events" type="button">
+        All Events
+      </button>
+      <button class="nav-link" data-view="departments" id="navBtn-departments" type="button">
+        Departments
+      </button>
+      <button class="nav-link" data-view="workorders" id="navBtn-workorders" type="button">
+        Work Orders
+      </button>
+      <button class="nav-link" data-view="analytics" id="navBtn-analytics" type="button">
+        Analytics
+      </button>
+    </nav>
+
+    <!-- Right Admin Profile & Status -->
+    <div class="navbar-right">
+      <span class="nav-user-label" id="adminUserDisplay">admin</span>
+      <span class="nav-status-indicator" id="adminServerBadge">
+        <span class="status-dot-green" id="adminServerDot"></span>
+        <span id="adminServerText">Online</span>
+      </span>
+      <button id="logoutBtn" class="btn-logout-minimal" type="button" title="Sign out of Command Center">
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================================== -->
+  <!-- 2. FULL SCREEN RESPONSIVE MAIN VIEWPORT (1400–1600px Max-Width)               -->
+  <!-- ============================================================================== -->
+  <main class="admin-container">
+
+    <!-- 2A. COMPACT PAGE HEADER (Sits Directly On Background, No Giant Box) -->
+    <header class="command-header">
+      <div class="command-title-wrap">
+        <h1 class="command-title">CITY COMMAND CENTER</h1>
+        <p class="command-desc">Real-time urban intelligence from the DrishtiYana mobile sensing network.</p>
+      </div>
+
+      <!-- Live Category Pill Selector (Direct Shortcut) -->
+      <div class="category-pills" id="categoryPillSelector">
+        <button class="category-pill active" data-cat="all" type="button">All Incidents</button>
+        <button class="category-pill" data-cat="road" type="button">Road &amp; Infra</button>
+        <button class="category-pill" data-cat="traffic" type="button">Traffic</button>
+        <button class="category-pill" data-cat="safety" type="button">Public Safety</button>
+      </div>
+    </header>
+
+    <!-- 2B. COMPACT HORIZONTAL METRICS ROW (PURE DATA, NO GIANT CARDS) -->
+    <section class="metrics-row" aria-label="City Intelligence Metrics">
+      <div class="metric-item">
+        <span class="metric-value" id="statTotalEvents">0</span>
+        <span class="metric-label">ACTIVE EVENTS</span>
+      </div>
+      <div class="metric-separator" aria-hidden="true"></div>
+      <div class="metric-item">
+        <span class="metric-value" id="statActiveBuses">0</span>
+        <span class="metric-label">ACTIVE BUSES</span>
+      </div>
+      <div class="metric-separator" aria-hidden="true"></div>
+      <div class="metric-item">
+        <span class="metric-value metric-critical" id="statCriticalEvents">0</span>
+        <span class="metric-label">CRITICAL</span>
+      </div>
+      <div class="metric-separator" aria-hidden="true"></div>
+      <div class="metric-item">
+        <span class="metric-value" id="statReportsSent">0</span>
+        <span class="metric-label">REPORTS</span>
+      </div>
+    </section>
+
+    <!-- Hidden compatibility elements preserving IDs for background scripts -->
+    <div style="display: none;" aria-hidden="true">
+      <span id="statVerified">0</span>
+      <span id="statRoadProblems">0</span>
+      <span id="statHighPriority">0</span>
+      <span id="statPendingReview">0</span>
+      <span id="statRejected">0</span>
+      <span id="statNewEvents">0</span>
+      <span id="statTrafficProblems">0</span>
+      <span id="statSafetyIncidents">0</span>
+      <span id="adminDbBadge"><span id="adminDbDot"></span><span id="adminDbText"></span></span>
+      <span id="adminTotalEventsBadge"></span>
+      <span id="badgeRoadCount">0</span>
+      <span id="badgeTrafficCount">0</span>
+      <span id="badgeSafetyCount">0</span>
+      <span id="badgeTotalCount">0</span>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW 1: OVERVIEW DASHBOARD                                                     -->
+    <!-- ============================================================================== -->
+    <div id="view-overview" class="view-pane">
+
+      <!-- 2C. BALANCED TWO-COLUMN COMPOSITION: GIS MAP (~65%) | LATEST EVENTS (~35%) -->
+      <section class="overview-grid">
+        
+        <!-- Left: City Intelligence Map -->
+        <div class="map-surface">
+          <div class="surface-header">
+            <div class="surface-title-group">
+              <span class="surface-title">CITY INTELLIGENCE</span>
+              <span class="marker-count-pill" id="mapEventCountBadge">0 pins</span>
+            </div>
+            <div class="map-actions">
+              <button id="fitAllEventsBtn" class="btn-subtle" type="button" title="Fit all markers in view">
+                Fit Events
+              </button>
+              <button id="recenterAdminMapBtn" class="btn-subtle" type="button" title="Center on Hyderabad">
+                Recenter
+              </button>
+              <button id="refreshEventsBtn" class="btn-subtle" type="button" title="Refresh live telemetry">
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div id="adminGisMap" class="map-canvas"></div>
+        </div>
+
+        <!-- Right: Recent Events Stream (Minimal Activity List, No Clutter) -->
+        <div class="stream-surface">
+          <div class="surface-header">
+            <span class="surface-title">RECENT DETECTIONS</span>
+          </div>
+          <div class="activity-list" id="liveEventFeed">
+            <!-- Dynamically populated minimal stream: Problem / Category / Time -->
+          </div>
+          <div class="activity-empty" id="liveFeedEmptyState" style="display: none;">
+            <p>No recent events</p>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- 2D. SIMPLE EVENT CARDS SECTION (CATEGORY FILTERED) -->
+      <section class="incident-catalog">
+        <div class="catalog-header">
+          <h2 class="catalog-title" id="categorySectionTitle">RECENT INCIDENTS</h2>
+          <span class="catalog-count" id="categorySectionCount">Viewing detected events</span>
+        </div>
+
+        <!-- Clean Grid: Simple Event Cards (Only Image + Title + Category + View Report) -->
+        <div class="simple-cards-grid" id="simpleEventCardsGrid">
+          <!-- Dynamically populated Simple Event Cards -->
+        </div>
+
+        <!-- Professional Empty State -->
+        <div class="catalog-empty" id="cardsEmptyState" style="display: none;">
+          <p>No active events</p>
+        </div>
+
+        <!-- Preserved Filter Inputs for Script Compatibility -->
+        <div style="display: none;" aria-hidden="true">
+          <input type="text" id="filterSearchInput" value="">
+          <select id="filterCategorySelect"><option value="all">all</option></select>
+          <select id="filterDepartmentSelect"><option value="all">all</option></select>
+          <select id="filterPrioritySelect"><option value="all">all</option></select>
+          <select id="filterRiskSelect"><option value="all">all</option></select>
+          <select id="filterStatusSelect"><option value="all">all</option></select>
+          <select id="filterReportStatusSelect"><option value="all">all</option></select>
+          <button id="clearFiltersBtn" type="button"></button>
+          <div id="verificationFilterGroup"></div>
+          <table id="adminEventsTable"><tbody id="eventsTableBody"></tbody></table>
+          <div id="tableEmptyState"></div>
+          <div id="deptCard-road"></div>
+          <div id="deptCard-traffic"></div>
+          <div id="deptCard-all"></div>
+          <span id="deptCountRoad">0</span>
+          <span id="deptCountTraffic">0</span>
+          <span id="deptCountAll">0</span>
+          <span id="selectedDeptHeading"></span>
+          <div id="deptStatusTabs">
+            <button data-sub="PENDING_REVIEW">Pending</button>
+            <button data-sub="VERIFIED">Verified</button>
+            <button data-sub="REPORTED">Reported</button>
+          </div>
+          <span>📄 VIEW REPORT</span>
+          <span id="subCountAll">0</span>
+          <span id="subCountAccepted">0</span>
+          <span id="subCountReported">0</span>
+          <span id="subCountPending">0</span>
+          <span id="subCountVerified">0</span>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW: ALL EVENTS (HISTORICAL PERSISTENT SUPABASE DATASET)                     -->
+    <!-- ============================================================================== -->
+    <div id="view-events" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <div class="surface-header-bar">
+          <div>
+            <h2 class="view-heading">ALL EVENTS</h2>
+            <p class="view-subheading">Complete historical event registry retrieved permanently from Supabase.</p>
+          </div>
+          <div class="view-header-actions">
+            <span class="marker-count-pill" id="allEventsCountBadge">0 events</span>
+            <button id="refreshAllEventsBtn" class="btn-subtle" type="button">🔄 Refresh Data</button>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="all-events-filter-bar">
+          <div class="filter-item">
+            <label for="allEventsCategoryFilter" class="filter-label">CATEGORY</label>
+            <select id="allEventsCategoryFilter" class="filter-select">
+              <option value="all">All Categories</option>
+              <option value="Road & Infrastructure">Road &amp; Infrastructure</option>
+              <option value="Traffic">Traffic</option>
+              <option value="Safety">Safety</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label for="allEventsStatusFilter" class="filter-label">STATUS</label>
+            <select id="allEventsStatusFilter" class="filter-select">
+              <option value="all">All Statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="SENT">Sent</option>
+              <option value="SOLVED">Solved</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label for="allEventsDeptFilter" class="filter-label">DEPARTMENT</label>
+            <select id="allEventsDeptFilter" class="filter-select">
+              <option value="all">All Departments</option>
+            </select>
+          </div>
+
+          <div class="filter-item filter-search-item">
+            <label for="allEventsSearchInput" class="filter-label">SEARCH</label>
+            <input type="text" id="allEventsSearchInput" class="filter-input" placeholder="Search event, bus ID, location...">
+          </div>
+
+          <div class="filter-item filter-reset-item">
+            <button id="resetAllEventsFiltersBtn" class="btn-subtle" type="button">Reset Filters</button>
+          </div>
+        </div>
+
+        <!-- Operational Table -->
+        <div class="operational-table-wrap">
+          <table class="operational-table" id="allEventsTable">
+            <thead>
+              <tr>
+                <th>EVENT</th>
+                <th>CATEGORY</th>
+                <th>TIME</th>
+                <th>LOCATION</th>
+                <th>DEPARTMENT</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="allEventsTableBody">
+              <!-- Dynamically populated from Supabase -->
+            </tbody>
+          </table>
+          <div class="catalog-empty" id="allEventsEmptyState" style="display: none;">
+            <p>No events recorded yet.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW 2: DEPARTMENTS BREAKDOWN VIEW (SEPARATE NAVIGATION)                       -->
+    <!-- ============================================================================== -->
+    <div id="view-departments" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <h2 class="view-heading">MUNICIPAL DEPARTMENTS</h2>
+        <p class="view-subheading">Automatic event routing and workload distribution across city authorities.</p>
+        <div class="departments-layout" id="deptCardsContainer">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW 3: WORK ORDERS PIPELINE VIEW (SEPARATE NAVIGATION)                        -->
+    <!-- ============================================================================== -->
+    <div id="view-workorders" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <h2 class="view-heading">WORK ORDERS PIPELINE</h2>
+        <p class="view-subheading">Operational dispatch queue and municipal contractor repair tracking.</p>
+        
+        <div class="workorders-table-wrap">
+          <table class="operational-table">
+            <thead>
+              <tr>
+                <th>EVENT</th>
+                <th>DEPARTMENT</th>
+                <th>PRIORITY</th>
+                <th>CREATED</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="workordersTableBody">
+              <!-- Dynamically populated from dispatched events -->
+            </tbody>
+          </table>
+          <div class="workorders-empty" id="workordersEmptyState">
+            <p>No active work orders dispatched yet. Open an incident report and click &ldquo;View &amp; Dispatch Report&rdquo; to route repair orders.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW 4: ANALYTICS VIEW (SEPARATE NAVIGATION)                                   -->
+    <!-- ============================================================================== -->
+    <div id="view-analytics" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <h2 class="view-heading">URBAN DEFECT ANALYTICS</h2>
+        <p class="view-subheading">Statistical severity breakdown and spatial cluster metrics across the city.</p>
+        <div class="analytics-layout" id="analyticsCardsContainer">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+    </div>
+
+  </main>
+
+  <!-- ============================================================================== -->
+  <!-- 3. SLIDE-IN EVENT REPORT DRAWER (PROGRESSIVE DISCLOSURE OVERLAY)                -->
+  <!-- ============================================================================== -->
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+
+  <aside id="adminDetailPanel" class="report-drawer" aria-label="Event Report Drawer">
+    
+    <!-- Drawer Header -->
+    <div class="drawer-top-bar">
+      <span class="drawer-label">EVENT REPORT</span>
+      <button type="button" class="btn-close-drawer" id="closeDetailDrawerBtn" aria-label="Close report">&times;</button>
+    </div>
+
+    <!-- Fallback badges for script compatibility -->
+    <div style="display: none;" aria-hidden="true">
+      <span id="detailVerificationBadge">ACCEPTED</span>
+      <span id="detailStatusBadge">ACCEPTED</span>
+      <div id="detailPlaceholder"></div>
+    </div>
+
+    <!-- Drawer Content Scroll Area -->
+    <div class="drawer-content-scroll" id="detailBody">
+      <div id="detailContent" class="drawer-inner-flow">
+        
+        <!-- SECTION 1: EVIDENCE -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">EVIDENCE</span>
+          <div class="drawer-photo-frame">
+            <img id="detailEvidenceImg" src="" alt="Detection Evidence" class="drawer-photo" title="Click to view full size">
+            <div id="detailEvidenceUnavailable" style="display: none;" class="drawer-no-photo">
+              <span>Evidence frame unavailable</span>
+            </div>
+            <span class="drawer-photo-badge" id="detailEvidenceTag">BEST CANDIDATE FRAME</span>
+          </div>
+        </div>
+
+        <!-- SECTION 2: DETECTION -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">DETECTION</span>
+          <h2 class="drawer-item-title" id="detailProblem">Pothole</h2>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Class</span>
+              <span class="meta-field-value" id="detailCategoryBadge">Road &amp; Infrastructure</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Confidence</span>
+              <span class="meta-field-value conf-highlight" id="detailConf">92%</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Event ID</span>
+              <span class="meta-field-value mono" id="detailEvtId">--</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Observations</span>
+              <span class="meta-field-value" id="detailObservations">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 3: LOCATION & MAP JUMP -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">LOCATION</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Latitude</span>
+              <span class="meta-field-value mono" id="detailLat">--</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Longitude</span>
+              <span class="meta-field-value mono" id="detailLon">--</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Address</span>
+              <span class="meta-field-value" id="detailAddress">Resolving address...</span>
+            </div>
+          </div>
+
+          <button type="button" class="btn-drawer-map" id="btnViewOnMap">
+            VIEW ON MAP &rarr;
+          </button>
+        </div>
+
+        <!-- SECTION 4: SOURCE TELEMETRY -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">SOURCE</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Bus ID</span>
+              <span class="meta-field-value mono" id="detailBusId">BUS-101</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Camera</span>
+              <span class="meta-field-value mono" id="detailCameraId">CAM-01</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Detected Timestamp</span>
+              <span class="meta-field-value mono" id="detailDetectedTime">--</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Session ID</span>
+              <span class="meta-field-value mono" id="detailSessionId">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 5: PRIORITY & RISK -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">PRIORITY</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Priority</span>
+              <span class="meta-field-value" id="detailPriorityBadge">High</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Risk Score</span>
+              <span class="meta-field-value" id="detailRiskBadge">86</span>
+            </div>
+          </div>
+          <div style="display: none;" aria-hidden="true">
+            <select id="detailStatusSelect"><option value="NEW">NEW</option></select>
+          </div>
+        </div>
+
+        <!-- SECTION 6: ACTION & DISPATCH -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">STATUS &amp; DISPATCH LIFECYCLE</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Department</span>
+              <span class="meta-field-value dept-highlight" id="detailDispatchDept">Road Maintenance</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Status Lifecycle</span>
+              <span class="meta-field-value" id="detailReportStatusBadge">PENDING</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Work Order</span>
+              <span class="meta-field-value" id="detailWorkOrder">Not Assigned</span>
+            </div>
+          </div>
+          <div style="display: none;" aria-hidden="true"><span id="detailDepartment"></span></div>
+
+          <!-- Direct Status Selector (Persists to Supabase) -->
+          <div class="status-selector-row">
+            <span class="meta-field-name" style="margin-bottom: 0.35rem; display: block;">LIFECYCLE STATUS (SUPABASE):</span>
+            <div class="status-button-group">
+              <button type="button" class="btn-status-toggle" id="btnLifecyclePending" data-status="PENDING">PENDING</button>
+              <button type="button" class="btn-status-toggle" id="btnLifecycleSent" data-status="SENT">SENT</button>
+              <button type="button" class="btn-status-toggle" id="btnLifecycleSolved" data-status="SOLVED">SOLVED</button>
+            </div>
+          </div>
+
+          <div class="dispatch-form-group">
+            <input type="text" id="reportNotesInput" placeholder="Add optional dispatch notes..." class="drawer-input">
+            <button id="sendReportBtn" type="button" class="btn-dispatch-action">
+              <span id="sendReportSpinner" class="spinner" style="display: none;"></span>
+              <span id="sendReportBtnText">VIEW &amp; DISPATCH REPORT</span>
+            </button>
+            <button id="markSolvedBtn" type="button" class="btn-dispatch-solved" style="display: none;">
+              ✓ MARK INCIDENT AS SOLVED
+            </button>
+            <div id="reportFeedback" style="display: none;" class="dispatch-feedback"></div>
+          </div>
+        </div>
+
+        <!-- Close Drawer Button -->
+        <button type="button" class="btn-drawer-dismiss" id="btnCloseReportBottom">
+          CLOSE REPORT
+        </button>
+
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================================================================== -->
+  <!-- 4. MODALS (HIGH-RES EVIDENCE & MUNICIPAL REPORT PREVIEW)                       -->
+  <!-- ============================================================================== -->
+  
+  <!-- High-Res Evidence Modal -->
+  <div id="imageModal" class="full-modal" style="display: none;">
+    <div class="modal-inner">
+      <button id="closeModalBtn" class="modal-close" aria-label="Close modal">&times;</button>
+      <img id="modalImg" src="" alt="Full Evidence Snapshot" class="modal-large-img">
+    </div>
+  </div>
+
+  <!-- Department Report Confirmation Modal -->
+  <div id="confirmReportModal" class="full-modal" style="display: none;">
+    <div class="report-preview-sheet">
+      <div class="sheet-header">
+        <div>
+          <h3 class="sheet-title">OFFICIAL MUNICIPAL REPORT</h3>
+          <span class="sheet-sub">DrishtiYana Incident Dispatch</span>
+        </div>
+        <span class="ready-badge">READY FOR TRANSMISSION</span>
+      </div>
+
+      <p class="sheet-intro">
+        The verified incident below will be transmitted to the designated municipal department:
+      </p>
+
+      <div class="sheet-meta-grid">
+        <div class="sheet-dept-banner">
+          <span class="sheet-meta-label">Destination Authority</span>
+          <span id="confirmModalDept" class="sheet-dept-name">ROAD MAINTENANCE</span>
+        </div>
+        <div>
+          <span class="sheet-meta-label">Incident ID</span>
+          <span class="sheet-meta-val mono" id="confirmModalEventId">--</span>
+        </div>
+        <div>
+          <span class="sheet-meta-label">Problem</span>
+          <span class="sheet-meta-val" id="confirmModalProblem">--</span>
+        </div>
+        <div>
+          <span class="sheet-meta-label">Confidence</span>
+          <span class="sheet-meta-val" id="confirmModalConf">--</span>
+        </div>
+        <div>
+          <span class="sheet-meta-label">Priority</span>
+          <span class="sheet-meta-val" id="reportPreviewPriority">HIGH</span>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <span class="sheet-meta-label">Subject</span>
+          <span class="sheet-meta-val" id="reportPreviewSubject">--</span>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <span class="sheet-meta-label">Timestamp</span>
+          <span class="sheet-meta-val mono" id="reportPreviewTimestamp">--</span>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <span class="sheet-meta-label">Location</span>
+          <span class="sheet-meta-val" id="reportPreviewLocation">--</span>
+        </div>
+      </div>
+
+      <div class="sheet-photo-wrap">
+        <span class="sheet-meta-label">Camera Evidence Frame:</span>
+        <img id="reportPreviewEvidenceImg" src="" alt="Evidence Frame" class="sheet-photo" style="display: none;">
+        <div id="reportPreviewEvidencePlaceholder" class="sheet-photo-placeholder">
+          Evidence frame will be attached
+        </div>
+      </div>
+
+      <div class="sheet-desc-box">
+        <p id="reportPreviewDesc" class="sheet-desc-text">
+          A road defect has been logged by the DRISHTIYANA mobile sensor network for municipal inspection and repair.
+        </p>
+      </div>
+
+      <div class="sheet-actions">
+        <button id="cancelReportBtn" type="button" class="btn-subtle">Cancel</button>
+        <button id="confirmSendReportBtn" type="button" class="btn-primary-compact">
+          Transmit Report
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Portal Script -->
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -93,9 +93,42 @@ def get_gps_for_video_timestamp(
     is_within_tolerance = (min_diff_ms <= max_difference_ms)
     status = "GPS MATCHED" if is_within_tolerance else "NO_CLOSE_MATCH"
 
+    if not is_within_tolerance:
+        return {
+            "latitude": None,
+            "longitude": None,
+            "gps_timestamp": None,
+            "accuracy": None,
+            "timestamp_difference_ms": int(min_diff_ms),
+            "gps_match_status": status
+        }
+
+    try:
+        latitude = float(best_record.get("latitude"))
+        longitude = float(best_record.get("longitude"))
+    except (TypeError, ValueError):
+        return {
+            "latitude": None,
+            "longitude": None,
+            "gps_timestamp": None,
+            "accuracy": None,
+            "timestamp_difference_ms": int(min_diff_ms),
+            "gps_match_status": "GPS_UNAVAILABLE"
+        }
+
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return {
+            "latitude": None,
+            "longitude": None,
+            "gps_timestamp": None,
+            "accuracy": None,
+            "timestamp_difference_ms": int(min_diff_ms),
+            "gps_match_status": "GPS_UNAVAILABLE"
+        }
+
     return {
-        "latitude": round(float(best_record.get("latitude", 0.0)), 6),
-        "longitude": round(float(best_record.get("longitude", 0.0)), 6),
+        "latitude": round(latitude, 6),
+        "longitude": round(longitude, 6),
         "gps_timestamp": best_record.get("gps_timestamp") or best_record.get("timestamp"),
         "accuracy": round(float(best_record.get("accuracy", 0.0)), 1) if best_record.get("accuracy") is not None else None,
         "speed": round(float(best_record.get("speed", 0.0)), 2) if best_record.get("speed") is not None else None,

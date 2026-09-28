@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citizen Login - DRISHTIYANA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #F7FAF8;
+      --bg-card: #FFFFFF;
+      --border-card: #DDE8E1;
+      --border-subtle: #E2E8F0;
+      --color-primary: #15803D;
+      --color-primary-hover: #166534;
+      --color-primary-light: #DCFCE7;
+      --color-primary-border: #BBF7D0;
+      --text-heading: #0F172A;
+      --text-body: #1E293B;
+      --text-muted: #64748B;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 12px;
+      --shadow-card: 0 4px 20px rgba(21, 128, 61, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: radial-gradient(circle at 10% 20%, #F0FDF4 0%, #F7FAF8 90%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text-body);
+    }
+
+    .app-header {
+      padding: 1rem 2rem;
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--border-card);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.15rem;
+      color: var(--text-heading);
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--color-primary-light);
+      border: 1px solid var(--color-primary-border);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.15rem;
+    }
+
+    .brand-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      background: var(--color-primary-light);
+      color: var(--color-primary);
+      border: 1px solid var(--color-primary-border);
+      margin-left: 0.4rem;
+    }
+
+    .login-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 1.5rem;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      padding: 2.5rem 2.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--color-primary), #22C55E);
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 1.85rem;
+    }
+
+    .login-header h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: var(--text-heading);
+      margin-bottom: 0.4rem;
+    }
+
+    .login-header p {
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .form-group {
+      margin-bottom: 1.2rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-heading);
+      margin-bottom: 0.45rem;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 0.75rem 0.9rem;
+      font-size: 0.92rem;
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm);
+      background: #FFFFFF;
+      color: var(--text-body);
+      outline: none;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .form-input:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+    }
+
+    .btn-login {
+      width: 100%;
+      background: var(--color-primary);
+      color: #FFFFFF;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 0.85rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+      margin-top: 0.5rem;
+    }
+
+    .btn-login:hover {
+      background: var(--color-primary-hover);
+    }
+
+    .error-banner {
+      display: none;
+      background: #FEE2E2;
+      border: 1px solid #FCA5A5;
+      color: #DC2626;
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.85rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      margin-bottom: 1.15rem;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .demo-info {
+      margin-top: 1.5rem;
+      padding-top: 1.15rem;
+      border-top: 1px solid var(--border-subtle);
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .demo-pill {
+      font-family: monospace;
+      background: var(--bg-main);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      color: var(--color-primary);
+      font-weight: 600;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .footer {
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">🚌</div>
+      <span>DRISHTIYANA</span>
+      <span class="brand-badge">CITIZEN PORTAL</span>
+    </div>
+  </header>
+
+  <main class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <h1>Citizen Access</h1>
+        <p>Track municipal commuter buses operating within 2 KM of your location.</p>
+      </div>
+
+      <div id="loginError" class="error-banner">
+        <span>⚠️</span>
+        <span id="errorMessage">Invalid credentials</span>
+      </div>
+
+      <form id="citizenLoginForm" autocomplete="off">
+        <div class="form-group">
+          <label class="form-label" for="citizenUsername">Citizen ID / Username</label>
+          <input type="text" id="citizenUsername" class="form-input" value="citizen" required placeholder="Enter username">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="citizenPassword">Access Password</label>
+          <input type="password" id="citizenPassword" class="form-input" value="CitizenAccess@2026" required placeholder="Enter password">
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn-login">
+          <span>Enter Citizen Portal</span> &rarr;
+        </button>
+      </form>
+
+      <div class="demo-info">
+        Prototype Access: <span class="demo-pill">citizen</span> / <span class="demo-pill">CitizenAccess@2026</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    DRISHTIYANA Urban Intelligence &bull; Municipal Public Transit
+  </footer>
+
+  <script>
+    const form = document.getElementById('citizenLoginForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const errorBox = document.getElementById('loginError');
+    const errorMsg = document.getElementById('errorMessage');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = 'Authenticating...';
+
+      const username = document.getElementById('citizenUsername').value.trim();
+      const password = document.getElementById('citizenPassword').value;
+
+      try {
+        const response = await fetch('/api/citizen/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          window.location.href = data.redirect || '/citizen';
+        } else {
+          errorMsg.textContent = data.error || 'Authentication failed. Please verify credentials.';
+          errorBox.style.display = 'flex';
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<span>Enter Citizen Portal</span> &rarr;';
+        }
+      } catch (err) {
+        errorMsg.textContent = 'Unable to connect to server. Please try again.';
+        errorBox.style.display = 'flex';
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Enter Citizen Portal</span> &rarr;';
+      }
+    });
+  </script>
+</body>
+</html>

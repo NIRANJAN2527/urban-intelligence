@@ -30,6 +30,8 @@ from enhancement import enhance_frame
 from detector import PotholeDetector, POTHOLE_CONFIDENCE_THRESHOLD, DEFAULT_MODEL_PATH
 from redis_tracker import RedisCandidateManager
 from gps_matcher import get_gps_for_video_timestamp, parse_timestamp_to_ms
+from risk_assessment import calculate_pothole_risk
+from video_sync_processor import process_uploaded_video
 
 # Node.js backend endpoint for submitting finalized events
 NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "http://127.0.0.1:3000")
@@ -87,6 +89,12 @@ def async_server_dispatch_worker():
         cand_id = candidate.get("candidate_id", "CAND000")
         event_id = f"EVT-{session_id}-{cand_id}"
 
+        # Evaluate deterministic Risk Score & Priority
+        risk_data = calculate_pothole_risk(candidate)
+        candidate["risk_score"] = risk_data["risk_score"]
+        candidate["risk_level"] = risk_data["risk_level"]
+        candidate["priority"] = risk_data["priority"]
+
         # Prepare multipart payload
         evidence_path = candidate.get("best_frame_path")
         evidence_bytes = None
@@ -96,6 +104,11 @@ def async_server_dispatch_worker():
                     evidence_bytes = f.read()
             except Exception as fe:
                 print(f"[Dispatcher Notice] Could not read evidence image: {fe}")
+
+        # Strict error handling: If evidence saving/reading failed, do NOT create an event pretending evidence exists
+        if not evidence_bytes:
+            print(f"[Dispatcher Error] Evidence image missing or unreadable for candidate {cand_id}; skipping event creation without valid evidence.")
+            continue
 
         gps = candidate.get("gps") or {}
         best_bbox = candidate.get("best_bbox") or {"x1": 0, "y1": 0, "x2": 0, "y2": 0}
@@ -117,25 +130,27 @@ def async_server_dispatch_worker():
             "bbox_x2": str(best_bbox.get("x2", 0)),
             "bbox_y2": str(best_bbox.get("y2", 0)),
             "observation_count": str(candidate.get("observation_count", 1)),
+            "risk_score": str(candidate["risk_score"]),
+            "risk_level": candidate["risk_level"],
+            "priority": candidate["priority"],
             "latitude": str(gps.get("latitude")) if gps.get("latitude") is not None else "",
             "longitude": str(gps.get("longitude")) if gps.get("longitude") is not None else "",
             "gps_timestamp": str(gps.get("gps_timestamp")) if gps.get("gps_timestamp") else "",
             "gps_accuracy": str(gps.get("accuracy")) if gps.get("accuracy") is not None else "",
             "timestamp_difference_ms": str(gps.get("timestamp_difference_ms")) if gps.get("timestamp_difference_ms") is not None else "",
-            "gps_match_status": str(gps.get("gps_match_status", "UNCHECKED"))
+            "gps_match_status": str(gps.get("gps_match_status", "UNCHECKED")),
+            "best_frame_path": evidence_path if evidence_path else ""
         }
 
-        files = None
-        if evidence_bytes:
-            files = {"evidence_image": ("evidence.jpg", evidence_bytes, "image/jpeg")}
+        files = {"evidence_image": ("evidence.jpg", evidence_bytes, "image/jpeg")}
 
         try:
-            resp = requests.post(f"{NODE_BACKEND_URL}/api/edge/events", data=data, files=files, timeout=2.0)
+            resp = requests.post(f"{NODE_BACKEND_URL}/api/edge/events", data=data, files=files, timeout=10.0)
             if resp.status_code in [200, 201]:
                 server_connection_status = "CONNECTED"
                 session_metrics["server_status"] = "CONNECTED"
                 session_metrics["total_final_events_sent"] += 1
-                print(f"[SERVER] Final event sent: {event_id} (confidence={float(data['confidence']):.2f}, observations={data['observation_count']})")
+                print(f"[SERVER] Final event sent: {event_id} | Risk: {candidate['risk_level']} ({candidate['risk_score']}) | Priority: {candidate['priority']} (confidence={float(data['confidence']):.2f}, observations={data['observation_count']})")
                 print(f"[DB] Event saved: {event_id}")
 
                 # Clean up temporary candidate frame now that server has permanently stored it
@@ -348,6 +363,7 @@ async def process_frame(
             if action == "CREATED":
                 session_metrics["total_candidates_created"] += 1
 
+            risk_preview = calculate_pothole_risk(cand)
             latest_candidate_info = {
                 "candidate_id": cand["candidate_id"],
                 "observation_count": cand["observation_count"],
@@ -359,7 +375,10 @@ async def process_frame(
                 "gps": cand["gps"],
                 "event_id": f"EVT-{session_id}-{cand['candidate_id']}",
                 "server_status": server_connection_status,
-                "status": cand.get("status", "ACTIVE")
+                "status": cand.get("status", "ACTIVE"),
+                "risk_score": risk_preview["risk_score"],
+                "risk_level": risk_preview["risk_level"],
+                "priority": risk_preview["priority"]
             }
 
     # Step 5: Check and Finalize Expired Candidates (Gap >= 2.0s)
@@ -406,6 +425,91 @@ async def process_frame(
         "server_status": server_connection_status,
         "redis_status": redis_tracker.get_redis_status()["mode"] if redis_tracker else "disconnected"
     }
+
+
+@app.post("/api/edge/process-video")
+async def process_video_endpoint(
+    video_path: Optional[str] = Form(None),
+    video_file: Optional[UploadFile] = File(None),
+    gps_source: Optional[str] = Form(None),
+    gps_file: Optional[UploadFile] = File(None),
+    session_id: str = Form("SESSION-UPLOAD-001"),
+    bus_id: str = Form("BUS-101"),
+    camera_id: str = Form("CAM-01"),
+    video_source: Optional[str] = Form(None),
+    frame_step: int = Form(2),
+    background: bool = Form(False)
+):
+    """
+    Uploaded Video Timestamp Synchronization & AI Pipeline Endpoint:
+    Processes recorded road video (.mp4, .avi, .mov, .webm) and GPS records (.csv, .json).
+    Synchronizes frames with deterministic OpenCV timing:
+      Frame Timestamp = GPS Start Time + (Frame Number / FPS)
+    Correlates nearest GPS, runs enhancement, YOLO inference, and Redis candidate aggregation.
+    Dispatches finalized pothole events to Node.js backend.
+    """
+    if detector is None or detector.model is None:
+        raise HTTPException(status_code=503, detail="YOLO detector is not initialized.")
+
+    target_video_path = video_path
+    temp_video_path = None
+
+    if video_file is not None:
+        temp_video_path = os.path.join(os.path.dirname(__file__), f"temp_upload_{int(time.time())}_{video_file.filename}")
+        with open(temp_video_path, "wb") as f:
+            content = await video_file.read()
+            f.write(content)
+        target_video_path = temp_video_path
+
+    if not target_video_path or not os.path.exists(target_video_path):
+        raise HTTPException(status_code=400, detail=f"Valid video file or video_path is required. Received: {target_video_path}")
+
+    target_gps_input = gps_source
+    if gps_file is not None:
+        gps_bytes = await gps_file.read()
+        target_gps_input = gps_bytes.decode("utf-8", errors="ignore")
+
+    if not target_gps_input:
+        raise HTTPException(status_code=400, detail="GPS dataset (CSV or JSON string/file) is required.")
+
+    def run_pipeline():
+        try:
+            return process_uploaded_video(
+                video_path=target_video_path,
+                gps_source=target_gps_input,
+                session_id=session_id,
+                bus_id=bus_id,
+                camera_id=camera_id,
+                video_source=video_source or os.path.basename(target_video_path),
+                detector=detector,
+                redis_tracker=redis_tracker,
+                node_backend_url=NODE_BACKEND_URL,
+                dispatch_to_server=True,
+                frame_step=max(1, frame_step)
+            )
+        finally:
+            if temp_video_path and os.path.exists(temp_video_path):
+                try:
+                    os.remove(temp_video_path)
+                except Exception:
+                    pass
+
+    if background:
+        bg_thread = threading.Thread(target=run_pipeline, daemon=True)
+        bg_thread.start()
+        return JSONResponse(content={
+            "success": True,
+            "status": "PROCESSING_STARTED",
+            "session_id": session_id,
+            "message": "Background video processing initiated"
+        })
+
+    try:
+        result = run_pipeline()
+        return JSONResponse(content=result)
+    except Exception as e:
+        print(f"[Process Video Error] {e}")
+        raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
 
 
 if __name__ == "__main__":

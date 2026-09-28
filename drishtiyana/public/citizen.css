@@ -1,0 +1,699 @@
+/* ==============================================================================
+   DRISHTIYANA - CITIZEN BUS TRACKING PORTAL (LIGHT THEME)
+   Clean, Professional Municipal Transport Theme
+   - Design System: White cards, light-green/gray background, green primary actions
+   - Map: Large dominant Leaflet + OpenStreetMap viewport
+   - Layout: Responsive split layout (Desktop & Mobile)
+   ============================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-main: #F7FAF8;
+  --bg-card: #FFFFFF;
+  --bg-surface: #F0FDF4;
+  --bg-surface-alt: #F8FAFC;
+  --bg-muted: #F1F5F9;
+
+  --border-card: #DDE8E1;
+  --border-subtle: #E2E8F0;
+  --border-primary: #15803D;
+  --border-primary-light: #BBF7D0;
+
+  --color-primary: #15803D;
+  --color-primary-hover: #166534;
+  --color-primary-light: #DCFCE7;
+  --color-primary-border: #BBF7D0;
+  --color-secondary: #22C55E;
+
+  --color-live: #16A34A;
+  --color-live-bg: #DCFCE7;
+  --color-warning: #D97706;
+  --color-warning-bg: #FEF3C7;
+  --color-offline: #DC2626;
+  --color-offline-bg: #FEE2E2;
+
+  --text-heading: #0F172A;
+  --text-body: #1E293B;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --text-subtle: #94A3B8;
+
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-hover: 0 8px 24px rgba(21, 128, 61, 0.08);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background-color: var(--bg-main);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==============================================================================
+   1. APP HEADER
+   ============================================================================== */
+.citizen-header {
+  height: 64px;
+  background: #FFFFFF;
+  border-bottom: 1px solid var(--border-card);
+  box-shadow: var(--shadow-sm);
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  flex-shrink: 0;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.header-brand-icon {
+  width: 40px;
+  height: 40px;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  color: var(--color-primary);
+}
+
+.header-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.brand-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.header-user-group {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.citizen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-border);
+}
+
+.btn-logout {
+  background: #FFFFFF;
+  border: 1px solid var(--border-card);
+  color: var(--text-secondary);
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.btn-logout:hover {
+  background: var(--color-offline-bg);
+  border-color: #FCA5A5;
+  color: var(--color-offline);
+}
+
+/* ==============================================================================
+   2. MAIN DASHBOARD LAYOUT
+   ============================================================================== */
+.citizen-dashboard {
+  flex: 1;
+  padding: 1.25rem 1.5rem;
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Sidebar Column */
+.citizen-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+/* Card Container */
+.clean-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.clean-card-header {
+  padding: 0.85rem 1.15rem;
+  background: var(--bg-card-header);
+  border-bottom: 1px solid var(--border-card);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.clean-card-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.clean-card-body {
+  padding: 1.15rem;
+}
+
+/* Location Status Card */
+.location-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.84rem;
+}
+
+.location-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.status-val {
+  font-weight: 600;
+  color: var(--text-body);
+  font-family: var(--font-sans);
+}
+
+.status-val.mono {
+  font-family: monospace;
+  font-size: 0.88rem;
+  color: var(--text-heading);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.status-pill.active {
+  background: var(--color-live-bg);
+  color: var(--color-live);
+  border: 1px solid var(--color-primary-border);
+}
+
+.status-pill.pending {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid #FCD34D;
+}
+
+.status-pill.denied {
+  background: var(--color-offline-bg);
+  color: var(--color-offline);
+  border: 1px solid #FCA5A5;
+}
+
+/* Location Selector/Presets for Testing */
+.location-presets {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.preset-btn {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.3rem 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.preset-btn:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-border);
+  color: var(--color-primary);
+}
+
+/* Nearby Buses Section */
+.nearby-buses-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.buses-count-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-border);
+}
+
+.nearby-buses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: calc(100vh - 360px);
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+/* Bus Card */
+.bus-card {
+  background: #FFFFFF;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+}
+
+.bus-card:hover {
+  border-color: var(--border-primary);
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
+}
+
+.bus-card.active-selected {
+  border-color: var(--color-primary);
+  background: var(--bg-surface);
+}
+
+.bus-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.bus-id-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bus-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--color-live-bg);
+  color: var(--color-live);
+  border: 1px solid var(--color-primary-border);
+  padding: 0.18rem 0.55rem;
+  border-radius: var(--radius-full);
+}
+
+.bus-live-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-live);
+  box-shadow: 0 0 6px var(--color-live);
+}
+
+.bus-route-text {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bus-route-text .arrow {
+  color: var(--text-muted);
+}
+
+.bus-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.bus-dist-tag {
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+/* Empty State: No Buses Available */
+.no-buses-card {
+  text-align: center;
+  padding: 2.25rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px dashed var(--border-card);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.no-buses-icon {
+  font-size: 2rem;
+  color: var(--text-subtle);
+}
+
+.no-buses-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.no-buses-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  max-width: 260px;
+}
+
+/* ==============================================================================
+   3. LARGE MAP VIEWPORT (DOMINANT VISUAL AREA)
+   ============================================================================== */
+.citizen-map-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 105px);
+  min-height: 600px;
+}
+
+.map-card-header {
+  padding: 0.75rem 1.15rem;
+  background: var(--bg-card-header);
+  border-bottom: 1px solid var(--border-card);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.map-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.map-tools-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.map-btn {
+  background: #FFFFFF;
+  border: 1px solid var(--border-card);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.map-btn:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-border);
+  color: var(--color-primary);
+}
+
+/* Leaflet Container */
+#citizenMap {
+  width: 100%;
+  flex: 1;
+  background: #E5E7EB;
+  z-index: 1;
+}
+
+/* On-Map Interactive Legend */
+.citizen-map-legend {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  box-shadow: var(--shadow-card);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem !important;
+  margin-left: 1rem !important;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.legend-row:last-child {
+  margin-bottom: 0;
+}
+
+.legend-icon-user {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #0284C7;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 0 4px #0284C7;
+}
+
+.legend-icon-radius {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--color-primary);
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.legend-icon-bus {
+  font-size: 0.85rem;
+}
+
+/* Custom Marker Pins */
+.citizen-pulse-marker {
+  position: relative;
+  width: 20px;
+  height: 20px;
+}
+
+.citizen-pulse-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #0284C7;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 0 8px rgba(2, 132, 199, 0.6);
+  z-index: 2;
+}
+
+.citizen-pulse-wave {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(2, 132, 199, 0.25);
+  animation: radarWave 2s ease-out infinite;
+  z-index: 1;
+}
+
+@keyframes radarWave {
+  0% { transform: translate(-50%, -50%) scale(0.4); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+.bus-pin-label {
+  background: #FFFFFF;
+  border: 2px solid var(--color-primary);
+  color: var(--color-primary);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: var(--shadow-card);
+  white-space: nowrap;
+}
+
+/* Leaflet Popup Light Theme overrides */
+.leaflet-popup-content-wrapper {
+  background: #FFFFFF !important;
+  color: var(--text-body) !important;
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--border-card) !important;
+  box-shadow: var(--shadow-hover) !important;
+  font-family: var(--font-sans) !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 0.85rem 1rem !important;
+  line-height: 1.4 !important;
+}
+
+.leaflet-popup-tip {
+  background: #FFFFFF !important;
+}
+
+.popup-bus-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  margin-bottom: 0.25rem;
+}
+
+.popup-bus-route {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: 0.4rem;
+}
+
+.popup-bus-info {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.popup-bus-info div {
+  margin-bottom: 0.2rem;
+}
+
+/* ==============================================================================
+   4. RESPONSIVE MEDIA QUERIES
+   ============================================================================== */
+@media (max-width: 1024px) {
+  .citizen-dashboard {
+    grid-template-columns: 320px 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .citizen-dashboard {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1rem;
+  }
+  .citizen-map-card {
+    height: 450px;
+    min-height: 400px;
+    order: 2;
+  }
+  .citizen-sidebar {
+    order: 3;
+  }
+  .nearby-buses-list {
+    max-height: none;
+  }
+}

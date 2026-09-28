@@ -4,7 +4,11 @@
   "description": "DRISHTIYANA - Mobile Camera to Edge Monitor WebRTC Live Streaming Server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "dev:https": "node generate-cert.js && node server.js",
+    "generate-cert": "node generate-cert.js",
+    "install-ca": "cmd /c install-ca.bat"
   },
   "keywords": [
     "webrtc",
