@@ -7,43 +7,43 @@
 
 :root {
   /* Surface & Background Colors */
-  --bg-main: #F7FAF8;
+  --bg-main: #F4F7FC;
   --bg-card: #FFFFFF;
-  --bg-card-border: #DDE8E1;
-  --bg-surface: #F0FDF4;
+  --bg-card-border: #D9E2F2;
+  --bg-surface: #EFF6FF;
   --bg-surface-alt: #F8FAFC;
   --bg-muted: #F1F5F9;
 
   /* Text & Typography Hierarchy */
-  --text-primary: #16301F;
-  --text-secondary: #475569;
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
   --text-muted: #64748B;
   --text-light: #94A3B8;
 
-  /* Brand Green Colors */
-  --color-primary: #15803D;
-  --color-primary-hover: #166534;
-  --color-primary-light: #DCFCE7;
-  --color-primary-border: #BBF7D0;
-  --color-secondary: #22C55E;
-  --color-soft-green: #F0FDF4;
+  /* Brand Blue / Indigo Colors */
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-light: #EFF6FF;
+  --color-primary-border: #BFDBFE;
+  --color-secondary: #4F46E5;
+  --color-soft-blue: #EFF6FF;
 
-  /* Status Colors */
-  --color-live: #16A34A;
-  --color-live-bg: #DCFCE7;
-  --color-live-border: #86EFAC;
-  --color-live-glow: rgba(22, 163, 74, 0.3);
+  /* Status Colors (Semantic) */
+  --color-live: #10B981;
+  --color-live-bg: #ECFDF5;
+  --color-live-border: #A7F3D0;
+  --color-live-glow: rgba(16, 185, 129, 0.3);
 
-  --color-offline: #DC2626;
-  --color-offline-bg: #FEE2E2;
-  --color-offline-border: #FCA5A5;
+  --color-offline: #EF4444;
+  --color-offline-bg: #FEF2F2;
+  --color-offline-border: #FECACA;
 
-  --color-warning: #D97706;
-  --color-warning-bg: #FEF3C7;
-  --color-warning-border: #FCD34D;
+  --color-warning: #F59E0B;
+  --color-warning-bg: #FFFBEB;
+  --color-warning-border: #FDE68A;
 
   --color-info: #2563EB;
-  --color-info-bg: #DBEAFE;
+  --color-info-bg: #EFF6FF;
   --color-info-border: #BFDBFE;
 
   /* Radii */
@@ -53,11 +53,11 @@
   --radius-full: 9999px;
 
   /* Elevation & Subtle Shadows */
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-sm: 0 2px 6px rgba(16, 24, 40, 0.04);
-  --shadow-card: 0 4px 15px rgba(0, 0, 0, 0.04);
-  --shadow-card-hover: 0 8px 25px rgba(21, 128, 61, 0.08);
-  --shadow-popover: 0 10px 25px rgba(0, 0, 0, 0.06);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 4px 15px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover: 0 8px 25px rgba(37, 99, 235, 0.08);
+  --shadow-popover: 0 10px 25px rgba(15, 23, 42, 0.06);
 
   /* Fonts */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -75,8 +75,8 @@ body {
   font-family: var(--font-sans);
   background-color: var(--bg-main);
   background-image: 
-    radial-gradient(circle at 12% 10%, rgba(34, 197, 94, 0.05) 0%, transparent 45%),
-    radial-gradient(circle at 88% 90%, rgba(21, 128, 61, 0.04) 0%, transparent 45%);
+    radial-gradient(circle at 12% 10%, rgba(37, 99, 235, 0.04) 0%, transparent 45%),
+    radial-gradient(circle at 88% 90%, rgba(79, 70, 229, 0.03) 0%, transparent 45%);
   color: var(--text-primary);
   min-height: 100vh;
   display: flex;
@@ -93,7 +93,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.85rem 1.75rem;
+  padding: 0.75rem 1.75rem;
   background: #FFFFFF;
   border-bottom: 1px solid var(--bg-card-border);
   box-shadow: var(--shadow-xs);
@@ -108,41 +108,30 @@ body {
   gap: 0.75rem;
 }
 
-.brand-icon {
-  width: 38px;
-  height: 38px;
+.brand .brand-logo-img {
+  height: 32px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+  display: block;
+}
+
+.brand-badge-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--bg-card-border);
+  margin: 0 0.25rem;
+}
+
+.badge-station-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
   background: var(--color-primary-light);
   border: 1px solid var(--color-primary-border);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-primary);
-  transition: transform 0.2s ease;
-}
-
-.brand-icon svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: var(--color-primary);
-  stroke-width: 2.2;
-}
-
-.brand-title {
-  font-size: 1.25rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: var(--color-primary);
-  line-height: 1.2;
-}
-
-.brand-subtitle {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
 }
 
 .header-badges {
@@ -273,7 +262,7 @@ body {
 
 .mode-btn:hover {
   color: var(--color-primary);
-  background: rgba(220, 252, 231, 0.6);
+  background: rgba(239, 246, 255, 0.9);
 }
 
 .mode-btn.active {
@@ -373,7 +362,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #F8FAFC 0%, #F0FDF4 100%);
+  background: linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%);
   gap: 1rem;
   text-align: center;
   padding: 2rem;
@@ -518,7 +507,7 @@ body {
   padding: 0.85rem 1.5rem;
   border-radius: var(--radius-full);
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(21, 128, 61, 0.35);
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.35);
   z-index: 20;
   transition: all 0.2s ease;
 }
@@ -541,8 +530,8 @@ body {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(34, 197, 94, 0.25);
-  border: 2px solid var(--color-secondary);
+  background: rgba(37, 99, 235, 0.2);
+  border: 2px solid var(--color-primary);
   animation: bus-radar-ping 2s infinite cubic-bezier(0, 0, 0.2, 1);
 }
 
@@ -555,7 +544,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 3px 10px rgba(21, 128, 61, 0.4);
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.4);
   border: 2px solid #FFFFFF;
 }
 
@@ -736,18 +725,18 @@ body {
   background: var(--color-primary);
   color: #FFFFFF;
   border: 1px solid var(--color-primary);
-  box-shadow: 0 2px 8px rgba(21, 128, 61, 0.2);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(21, 128, 61, 0.3);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
 }
 
 .btn-secondary {
-  background: var(--color-soft-green);
+  background: var(--color-soft-blue);
   border: 1px solid var(--color-primary-border);
   color: var(--color-primary);
   font-weight: 600;
@@ -912,7 +901,7 @@ body {
 
 .text-input:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.12);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
 .upload-summary-box {
@@ -1094,7 +1083,7 @@ body {
   position: absolute;
   bottom: 0.4rem;
   left: 0.4rem;
-  background: rgba(21, 128, 61, 0.9);
+  background: rgba(37, 99, 235, 0.9);
   color: #FFFFFF;
   font-size: 0.65rem;
   font-weight: 700;

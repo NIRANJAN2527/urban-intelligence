@@ -9,28 +9,29 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-main: #F7FAF8;
+  --bg-main: #F4F7FC;
   --bg-card: #FFFFFF;
-  --bg-surface: #F0FDF4;
+  --bg-surface: #EFF6FF;
   --bg-surface-alt: #F8FAFC;
   --bg-muted: #F1F5F9;
 
-  --border-card: #DDE8E1;
+  --border-card: #D9E2F2;
   --border-subtle: #E2E8F0;
-  --border-primary: #15803D;
-  --border-primary-light: #BBF7D0;
+  --border-primary: #2563EB;
+  --border-primary-light: #BFDBFE;
 
-  --color-primary: #15803D;
-  --color-primary-hover: #166534;
-  --color-primary-light: #DCFCE7;
-  --color-primary-border: #BBF7D0;
-  --color-secondary: #22C55E;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-light: #EFF6FF;
+  --color-primary-border: #BFDBFE;
+  --color-secondary: #4F46E5;
 
-  --color-live: #16A34A;
-  --color-live-bg: #DCFCE7;
-  --color-warning: #D97706;
+  /* Live Semantic Colors (Strictly for active buses, GPS locked, on-time) */
+  --color-live: #10B981;
+  --color-live-bg: #ECFDF5;
+  --color-warning: #F59E0B;
   --color-warning-bg: #FEF3C7;
-  --color-offline: #DC2626;
+  --color-offline: #EF4444;
   --color-offline-bg: #FEE2E2;
 
   --text-heading: #0F172A;
@@ -41,7 +42,7 @@
 
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
   --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);
-  --shadow-hover: 0 8px 24px rgba(21, 128, 61, 0.08);
+  --shadow-hover: 0 8px 24px rgba(37, 99, 235, 0.08);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -94,17 +95,19 @@ body {
   gap: 0.85rem;
 }
 
-.header-brand-icon {
-  width: 40px;
-  height: 40px;
-  background: var(--color-primary-light);
-  border: 1px solid var(--color-primary-border);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.25rem;
-  color: var(--color-primary);
+.header-brand .brand-logo-img {
+  height: 32px;
+  width: auto;
+  max-width: 170px;
+  object-fit: contain;
+  display: block;
+}
+
+.header-brand-divider {
+  width: 1px;
+  height: 26px;
+  background: var(--border-card);
+  margin: 0 0.15rem;
 }
 
 .header-brand-text {

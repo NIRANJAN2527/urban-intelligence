@@ -3,716 +3,1470 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DRISHTIYANA - Urban Intelligence Admin Portal</title>
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="admin.css">
+  <title>DRISHTIYANA — City Command Center</title>
+  <meta name="description" content="City-wide urban intelligence and municipal incident management from the DrishtiYana mobile sensing network.">
+
+  <!-- Inter & JetBrains Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <!-- Leaflet GIS Map CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-  <!-- Socket.IO client -->
-  <script src="/socket.io/socket.io.js"></script>
-  <!-- Leaflet GIS Map JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-</head>
-<body>
-  <!-- Top Navigation / Header -->
-  <header class="app-header">
-    <div class="header-left">
-      <button id="sidebarToggleBtn" class="sidebar-toggle-btn" aria-label="Toggle Menu" title="Toggle Navigation Sidebar">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-      </button>
+  
+  <!-- Synchro-Inspired Command Center Stylesheet -->
+  <link rel="stylesheet" href="admin.css">
 
-      <div class="brand">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
-          </svg>
-        </div>
-        <div>
-          <h1 class="brand-title">DRISHTIYANA</h1>
-          <p class="brand-subtitle">Urban Intelligence Dashboard</p>
-        </div>
+  <!-- Socket.IO & Leaflet JS & Supabase JS SDK -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Leaflet Heatmap Plugin -->
+  <script src="/assets/leaflet-heat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+
+  <!-- ============================================================================== -->
+  <!-- 1. TOP HORIZONTAL NAVIGATION (MINIMAL, 68px, NO SIDEBAR, NO EMOJIS)             -->
+  <!-- ============================================================================== -->
+  <header class="admin-navbar">
+    <div class="navbar-left">
+      <a href="/admin" class="admin-brand" title="DRISHTIYANA — City Command Center">
+        <img src="/assets/drishtiyana-logo-trans.png" alt="DRISHTIYANA" class="brand-logo-img">
+      </a>
+      <span class="brand-navbar-divider"></span>
+      <div class="brand-navbar-text-group">
+        <span class="brand-navbar-title">CITY COMMAND CENTER</span>
+        <span class="brand-navbar-descriptor">URBAN INTELLIGENCE PLATFORM</span>
       </div>
     </div>
-    
-    <div class="header-right">
-      <!-- Quick Navigation -->
-      <nav class="header-nav-links">
-        <a href="/admin" class="btn btn-secondary nav-link-active">
-          🏛️ Admin Portal
-        </a>
-        <a href="/viewer" class="btn btn-secondary">
-          🖥️ Edge Monitor
-        </a>
-        <a href="/mobile" target="_blank" class="btn btn-secondary">
-          📱 Bus Sensor
-        </a>
-        <a href="/ca.crt" download class="btn btn-secondary cert-link" title="Download Root CA certificate to install on mobile phone for trusted HTTPS">
-          🔐 Mobile CA Cert
-        </a>
-      </nav>
 
-      <!-- Status Badges -->
-      <div class="header-status-group">
-        <span class="badge badge-primary" id="adminTotalEventsBadge">EVENTS: 0</span>
-        <span class="badge" id="adminDbBadge">
-          <span class="status-dot" id="adminDbDot"></span>
-          <span id="adminDbText">DB: CHECKING...</span>
-        </span>
-        <span class="badge" id="adminServerBadge">
-          <span class="status-dot active" id="adminServerDot"></span>
-          <span id="adminServerText">SERVER: ONLINE</span>
-        </span>
-      </div>
+    <!-- Center Category & View Navigation: Minimal text navigation -->
+    <nav class="admin-nav-links" id="adminNavLinks">
+      <button class="nav-link active" data-view="overview" id="navBtn-overview" type="button">
+        Overview
+      </button>
+      <button class="nav-link" data-view="road" id="navBtn-road" type="button">
+        Roads
+      </button>
+      <button class="nav-link" data-view="traffic" id="navBtn-traffic" type="button">
+        Traffic
+      </button>
+      <button class="nav-link" data-view="safety" id="navBtn-safety" type="button">
+        Safety
+      </button>
+      <button class="nav-link" data-view="events" id="navBtn-events" type="button">
+        All Events
+      </button>
+      <button class="nav-link" data-view="departments" id="navBtn-departments" type="button">
+        Departments
+      </button>
+      <button class="nav-link" data-view="workorders" id="navBtn-workorders" type="button">
+        Work Orders
+      </button>
+      <button class="nav-link" data-view="analytics" id="navBtn-analytics" type="button">
+        Analytics
+      </button>
+    </nav>
 
-      <!-- Supervisor Profile & Logout -->
-      <div class="user-profile-group">
-        <span class="badge user-badge">
-          👤 <span id="adminUserDisplay">admin</span>
-        </span>
-        <button id="logoutBtn" class="btn btn-secondary btn-logout" type="button" title="Sign out of Admin Portal">
-          🚪 Logout
-        </button>
-      </div>
+    <!-- Right Admin Profile & Status -->
+    <div class="navbar-right">
+      <span class="nav-status-indicator" id="adminServerBadge">
+        <span class="status-dot-green" id="adminServerDot"></span>
+        <span id="adminServerText">SERVER: ONLINE</span>
+      </span>
+      <span class="nav-user-label" id="adminUserDisplay">admin</span>
+      <button id="logoutBtn" class="btn-logout-minimal" type="button" title="Sign out of Command Center">
+        Logout
+      </button>
     </div>
   </header>
 
-  <!-- Mobile Sidebar Backdrop -->
-  <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+  <!-- ============================================================================== -->
+  <!-- 2. FULL SCREEN RESPONSIVE MAIN VIEWPORT (1400–1600px Max-Width)               -->
+  <!-- ============================================================================== -->
+  <main class="admin-container">
 
-  <!-- Admin Main Layout -->
-  <div class="admin-layout">
-    
-    <!-- Left Navigation Sidebar -->
-    <aside class="admin-sidebar" id="adminSidebar">
-      <div class="sidebar-top">
-        <span class="sidebar-heading">MONITORING CONSOLE</span>
-        <button class="sidebar-nav-btn active" id="navBtn-overview" data-view="overview">
-          <span class="nav-icon">📊</span>
-          <span>1. Overview</span>
-        </button>
-        <button class="sidebar-nav-btn" id="navBtn-gis" data-view="gis">
-          <span class="nav-icon">🗺️</span>
-          <span>2. GIS Map</span>
-        </button>
-
-        <span class="sidebar-heading">CATEGORIES</span>
-        <button class="sidebar-nav-btn" id="navBtn-road" data-view="road">
-          <span class="nav-icon">🚧</span>
-          <span>3. Road & Infra</span>
-          <span class="nav-badge" id="badgeRoadCount">0</span>
-        </button>
-        <button class="sidebar-nav-btn" id="navBtn-traffic" data-view="traffic">
-          <span class="nav-icon">🚦</span>
-          <span>4. Traffic</span>
-          <span class="nav-badge" id="badgeTrafficCount">0</span>
-        </button>
-        <button class="sidebar-nav-btn" id="navBtn-safety" data-view="safety">
-          <span class="nav-icon">🛡️</span>
-          <span>5. Safety</span>
-          <span class="nav-badge" id="badgeSafetyCount">0</span>
-        </button>
-
-        <span class="sidebar-heading">OPERATIONS</span>
-        <button class="sidebar-nav-btn" id="navBtn-events" data-view="events">
-          <span class="nav-icon">📋</span>
-          <span>6. All Events</span>
-          <span class="nav-badge" id="badgeTotalCount">0</span>
-        </button>
-        <button class="sidebar-nav-btn" id="navBtn-departments" data-view="departments">
-          <span class="nav-icon">🏢</span>
-          <span>7. Departments</span>
-        </button>
-        <button class="sidebar-nav-btn" id="navBtn-workorders" data-view="workorders">
-          <span class="nav-icon">📝</span>
-          <span>8. Work Orders</span>
-        </button>
-        <button class="sidebar-nav-btn" id="navBtn-analytics" data-view="analytics">
-          <span class="nav-icon">📈</span>
-          <span>9. Analytics</span>
-        </button>
+    <!-- 2A. COMPACT PAGE HEADER: CITY COMMAND CENTER -->
+    <header class="command-header">
+      <div class="command-title-wrap">
+        <h1 class="command-title">CITY COMMAND CENTER</h1>
+        <p class="command-desc">Urban intelligence overview &bull; Real-time infrastructure, mobility and safety intelligence</p>
       </div>
 
-      <div class="sidebar-footer">
-        <div>Supervisor Role: <strong>READ-ONLY</strong></div>
-        <div class="sidebar-sync-text">Auto-Sync: WebSocket Active</div>
+      <!-- Category Filter Shortcuts -->
+      <div class="category-pills" id="categoryPillSelector">
+        <button class="category-pill active" data-cat="all" type="button">All Incidents</button>
+        <button class="category-pill" data-cat="road" type="button">Roads</button>
+        <button class="category-pill" data-cat="traffic" type="button">Traffic</button>
+        <button class="category-pill" data-cat="safety" type="button">Safety</button>
       </div>
-    </aside>
+    </header>
 
-    <!-- Main Content Stage -->
-    <main class="admin-content">
-
-      <!-- ================================================================== -->
-      <!-- VIEW 1: OVERVIEW DASHBOARD                                         -->
-      <!-- ================================================================== -->
-      <section id="view-overview" class="admin-view-section">
-
-        <!-- 1. COMPACT SUMMARY METRICS ROW -->
-        <div class="admin-stats-grid">
-          <div class="stat-card">
-            <span class="stat-label">AI DETECTIONS</span>
-            <span class="stat-value" id="statTotalEvents">0</span>
-            <span class="stat-desc">Total recorded defects</span>
-          </div>
-          <div class="stat-card stat-accepted">
-            <span class="stat-label">ACCEPTED</span>
-            <span class="stat-value" id="statVerified">0</span>
-            <span class="stat-desc">Confidence ≥ 80%</span>
-          </div>
-          <div class="stat-card stat-road">
-            <span class="stat-label">ROADS & INFRA</span>
-            <span class="stat-value" id="statRoadProblems">0</span>
-            <span class="stat-desc">Potholes & defects</span>
-          </div>
-          <div class="stat-card stat-high">
-            <span class="stat-label">HIGH PRIORITY</span>
-            <span class="stat-value" id="statHighPriority">0</span>
-            <span class="stat-desc">Urgent repairs</span>
-          </div>
-          <div class="stat-card stat-critical">
-            <span class="stat-label">CRITICAL EVENTS</span>
-            <span class="stat-value" id="statCriticalEvents">0</span>
-            <span class="stat-desc">Risk score 76 - 100</span>
-          </div>
-          <div class="stat-card stat-reports">
-            <span class="stat-label">REPORTS SENT</span>
-            <span class="stat-value" id="statReportsSent">0</span>
-            <span class="stat-desc">Dispatched to dept</span>
-          </div>
+    <!-- 2B. CLEAN HORIZONTAL KPI STRIP (Pasted directly onto canvas with subtle dividers) -->
+    <section class="metrics-row" aria-label="City Intelligence Key Performance Indicators">
+      <div class="metric-item">
+        <div class="metric-header">
+          <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 6v6M16 6v6M2 12h20M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM6 18h.01M18 18h.01"/>
+          </svg>
+          <span class="metric-label">ACTIVE BUSES</span>
         </div>
+        <span class="metric-value" id="statActiveBuses">1</span>
+      </div>
 
-        <!-- 2. COMPACT DEPARTMENT QUICK TABS STRIP -->
-        <div class="dept-command-strip">
-          <div class="dept-card-grid">
-            <div class="dept-card active" id="deptCard-road" data-dept="ROAD MAINTENANCE">
-              <div class="dept-card-title-group">
-                <span class="dept-card-icon">🚧</span>
-                <span class="dept-card-title">ROAD MAINTENANCE</span>
-                <span class="dept-pill-count" id="deptCountRoad">0</span>
-              </div>
-            </div>
-
-            <div class="dept-card" id="deptCard-traffic" data-dept="TRAFFIC">
-              <div class="dept-card-title-group">
-                <span class="dept-card-icon">🚦</span>
-                <span class="dept-card-title">TRAFFIC MANAGEMENT</span>
-                <span class="dept-pill-count" id="deptCountTraffic">0</span>
-              </div>
-            </div>
-
-            <div class="dept-card" id="deptCard-all" data-dept="ALL">
-              <div class="dept-card-title-group">
-                <span class="dept-card-icon">🏛️</span>
-                <span class="dept-card-title">ALL INCIDENTS</span>
-                <span class="dept-pill-count" id="deptCountAll">0</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="dept-sub-filter-strip">
-            <span class="dept-badge-label" id="selectedDeptHeading" style="display: none;">ROAD MAINTENANCE</span>
-            <div class="dept-status-tabs" id="deptStatusTabs">
-              <button type="button" class="dept-tab active" data-sub="ALL">
-                All Incidents (<span id="subCountAll">0</span>)
-              </button>
-              <button type="button" class="dept-tab" data-sub="ACCEPTED">
-                ✓ Accepted (<span id="subCountAccepted">0</span>)
-              </button>
-              <button type="button" class="dept-tab" data-sub="REPORTED">
-                📤 Reported (<span id="subCountReported">0</span>)
-              </button>
-            </div>
-          </div>
+      <div class="metric-item">
+        <div class="metric-header">
+          <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284C7;">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <span class="metric-label">TRAFFIC OBSERVATIONS</span>
         </div>
+        <span class="metric-value" id="statTrafficObs" style="color: #0284c7;">30</span>
+      </div>
 
-        <!-- 3. LARGE GIS MAP (MAIN VISUAL COMPONENT — FULL HORIZONTAL WIDTH) -->
-        <div class="admin-map-card">
-          <div class="admin-map-header">
-            <div class="admin-map-title">
-              <span class="map-title-icon">📍</span>
-              <span>CITY GIS EVENT MAP</span>
-              <span class="badge badge-primary" id="mapEventCountBadge">0 pins</span>
-            </div>
-            <div class="map-action-controls">
-              <button id="fitAllEventsBtn" class="btn btn-secondary btn-sm" type="button" title="Fit all active events in view">
-                🌐 Fit All Events
-              </button>
-              <button id="recenterAdminMapBtn" class="btn btn-secondary btn-sm" type="button" title="Reset map to city center">
-                🎯 Recenter
-              </button>
-              <button id="refreshEventsBtn" class="btn btn-secondary btn-sm" type="button">
-                🔄 Refresh Data
-              </button>
-            </div>
-          </div>
-          <div id="adminGisMap" class="admin-map-container"></div>
+      <div class="metric-item">
+        <div class="metric-header">
+          <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #D97706;">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span class="metric-label">INFRASTRUCTURE EVENTS</span>
         </div>
+        <span class="metric-value" id="statTotalEvents">0</span>
+      </div>
 
-        <!-- 4. BOTTOM SPLIT GRID: EVENT DETAILS (LEFT) + RECENT EVENT HISTORY (RIGHT) -->
-        <div class="admin-bottom-grid">
-          
-          <!-- Column 1: Event Details Panel Card -->
-          <div class="admin-detail-panel" id="adminDetailPanel">
-            <div class="detail-header">
-              <div class="detail-title">
-                <span>🔍</span>
-                <span>EVENT DETAILS</span>
-              </div>
-              <div class="detail-header-badges">
-                <span class="badge badge-v-verified" id="detailVerificationBadge" style="display: none;">ACCEPTED</span>
-                <span class="badge" id="detailStatusBadge">SELECT EVENT</span>
-              </div>
-            </div>
-            
-            <div class="detail-body" id="detailBody">
-              <!-- Placeholder when no event selected -->
-              <div class="detail-placeholder" id="detailPlaceholder">
-                <div class="detail-empty-icon">🗺️</div>
-                <strong class="detail-empty-title">SELECT AN EVENT</strong>
-                <p class="detail-empty-desc">
-                  Click a map marker or history item to view event details.
-                </p>
-              </div>
+      <div class="metric-item">
+        <div class="metric-header">
+          <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #10B981;">
+            <path d="M9 11l3 3L22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          <span class="metric-label">OPEN WORK ORDERS</span>
+        </div>
+        <span class="metric-value" id="statReportsSent">0</span>
+      </div>
+    </section>
 
-              <!-- Content populated when event selected -->
-              <div id="detailContent" style="display: none;">
-                
-                <!-- SECTION 1: PHYSICAL EVIDENCE -->
-                <div class="detail-section">
-                  <div class="detail-section-title">
-                    <span>📷</span>
-                    <span>PHYSICAL EVIDENCE FRAME</span>
-                  </div>
-                  <div class="detail-evidence-frame">
-                    <img id="detailEvidenceImg" src="" alt="Best Evidence Frame" class="detail-evidence-img" title="Click to view full image in high resolution">
-                    <div id="detailEvidenceUnavailable" style="display: none;" class="detail-evidence-empty">
-                      <span style="font-size: 1.8rem; opacity: 0.6;">📷</span>
-                      <span>Evidence frame unavailable</span>
-                    </div>
-                    <div class="edge-evidence-tag" id="detailEvidenceTag">BEST CANDIDATE FRAME</div>
-                  </div>
-                </div>
+    <!-- Hidden compatibility elements preserving IDs for background scripts -->
+    <div style="display: none;" aria-hidden="true">
+      <span id="statCriticalEvents">0</span>
+      <span id="statVerified">0</span>
+      <span id="statRoadProblems">0</span>
+      <span id="statHighPriority">0</span>
+      <span id="statPendingReview">0</span>
+      <span id="statRejected">0</span>
+      <span id="statNewEvents">0</span>
+      <span id="statTrafficProblems">0</span>
+      <span id="statSafetyIncidents">0</span>
+      <span id="adminDbBadge"><span id="adminDbDot"></span><span id="adminDbText"></span></span>
+      <span id="adminTotalEventsBadge"></span>
+      <span id="badgeRoadCount">0</span>
+      <span id="badgeTrafficCount">0</span>
+      <span id="badgeSafetyCount">0</span>
+      <span id="badgeTotalCount">0</span>
+    </div>
 
-                <!-- SECTION 2: DETECTION ATTRIBUTES -->
-                <div class="detail-section">
-                  <div class="detail-section-title">
-                    <span>🧠</span>
-                    <span>AI DETECTION & TAXONOMY</span>
-                  </div>
-                  <div class="detail-badges-row">
-                    <span id="detailCategoryBadge" class="badge badge-primary">Road & Infrastructure</span>
-                  </div>
-                  <div class="detail-item-grid">
-                    <div class="detail-item">
-                      <span class="detail-item-label">EVENT ID</span>
-                      <span class="detail-item-val" id="detailEvtId">--</span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">AI CONFIDENCE</span>
-                      <span class="detail-item-val conf-highlight" id="detailConf">--</span>
-                    </div>
-                    <div class="detail-item full-width">
-                      <span class="detail-item-label">PROBLEM TYPE</span>
-                      <span class="detail-item-val problem-val" id="detailProblem">Pothole</span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">STATUS</span>
-                      <span class="detail-item-val status-val">ACCEPTED</span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">ACCEPTANCE RULE</span>
-                      <span class="detail-item-val rule-val">AI Confidence ≥ 80%</span>
-                    </div>
-                    <div class="detail-item full-width">
-                      <span class="detail-item-label">OBSERVATIONS & REASONING</span>
-                      <span class="detail-item-val" id="detailObservations">--</span>
-                    </div>
-                  </div>
-                </div>
+    <!-- ============================================================================== -->
+    <!-- VIEW 1: OVERVIEW DASHBOARD                                                     -->
+    <!-- ============================================================================== -->
+    <div id="view-overview" class="view-pane">
 
-                <!-- SECTION 3: RISK & PRIORITY -->
-                <div class="detail-section">
-                  <div class="detail-section-title">
-                    <span>⚡</span>
-                    <span>RISK & PRIORITY ASSESSMENT</span>
-                  </div>
-                  <div class="detail-badges-row">
-                    <span id="detailRiskBadge" class="badge badge-risk-high">RISK: HIGH (78)</span>
-                    <span id="detailPriorityBadge" class="badge badge-risk-high">PRIORITY: HIGH</span>
-                  </div>
-                  <div class="detail-status-row">
-                    <span class="workflow-label">WORKFLOW STATUS:</span>
-                    <select id="detailStatusSelect" class="filter-select select-workflow">
-                      <option value="NEW">NEW</option>
-                      <option value="ASSIGNED">ASSIGNED</option>
-                      <option value="IN_PROGRESS">IN_PROGRESS</option>
-                      <option value="RESOLVED">RESOLVED</option>
-                      <option value="CLOSED">CLOSED</option>
-                    </select>
-                  </div>
-                </div>
-
-                <!-- SECTION 4: GIS LOCATION & TELEMETRY -->
-                <div class="detail-section">
-                  <div class="detail-section-title">
-                    <span>📍</span>
-                    <span>LOCATION & SENSOR TELEMETRY</span>
-                  </div>
-                  <div class="detail-item-grid">
-                    <div class="detail-item full-width">
-                      <span class="detail-item-label">LOCATION ADDRESS / REVERSE GEOCODE</span>
-                      <span class="detail-item-val address-val" id="detailAddress">
-                        Resolving address...
-                      </span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">LATITUDE</span>
-                      <span class="detail-item-val" id="detailLat">--</span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">LONGITUDE</span>
-                      <span class="detail-item-val" id="detailLon">--</span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">BUS ID</span>
-                      <span class="detail-item-val" id="detailBusId">BUS-101</span>
-                    </div>
-                    <div class="detail-item">
-                      <span class="detail-item-label">CAMERA ID</span>
-                      <span class="detail-item-val" id="detailCameraId">CAM-01</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- SECTION 5: TIMING & SESSION TRACEABILITY -->
-                <div class="detail-section">
-                  <div class="detail-section-title">
-                    <span>🕒</span>
-                    <span>TIMING & TRACEABILITY</span>
-                  </div>
-                  <div class="detail-item-grid">
-                    <div class="detail-item full-width">
-                      <span class="detail-item-label">DETECTED TIME (UTC)</span>
-                      <span class="detail-item-val" id="detailDetectedTime">--</span>
-                    </div>
-                    <div class="detail-item full-width">
-                      <span class="detail-item-label">SESSION ID</span>
-                      <span class="detail-item-val mono-val" id="detailSessionId">--</span>
-                    </div>
-                    <div class="detail-item full-width">
-                      <span class="detail-item-label">WORK ORDER REFERENCE</span>
-                      <span class="detail-item-val" id="detailWorkOrder">Not Assigned</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- SECTION 6: DEPARTMENT DISPATCH -->
-                <div class="detail-section">
-                  <div class="report-action-card">
-                    <div class="report-card-top">
-                      <span class="report-card-title">🏢 MUNICIPAL DISPATCH</span>
-                      <span class="badge" id="detailReportStatusBadge">PENDING</span>
-                    </div>
-                    <p class="report-card-desc">
-                      Forward GIS telemetry, physical evidence image, and severity metrics to the designated authority:
-                    </p>
-                    <div class="report-target-dept">
-                      <span>🏢 Target Department:</span>
-                      <span id="detailDispatchDept">ROAD MAINTENANCE</span>
-                    </div>
-                    <input type="text" id="reportNotesInput" placeholder="Add optional dispatch notes / instructions..." class="report-notes-field">
-                    <button id="sendReportBtn" type="button" class="btn btn-primary btn-dispatch-report">
-                      <span id="sendReportSpinner" class="spinner" style="display: none;"></span>
-                      <span id="sendReportBtnText">📄 VIEW REPORT</span>
-                    </button>
-                    <div id="reportFeedback" class="report-feedback-box" style="display: none;"></div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          </div>
-
-          <!-- Column 2: Recent Event History Card -->
-          <div class="admin-history-card">
-            <div class="history-card-header">
-              <div class="history-title-group">
-                <span class="history-icon">📋</span>
-                <span class="history-title">RECENT EVENT HISTORY</span>
-              </div>
+      <!-- 2C. BALANCED TWO-COLUMN COMPOSITION: GIS MAP (~70%) | RECENT ACTIVITY (~30%) -->
+      <section class="overview-grid">
+        
+        <!-- Left: City Intelligence Map Module -->
+        <div class="map-surface">
+          <!-- Structured Map Header: Clear visual hierarchy -->
+          <div class="surface-header">
+            <div class="surface-title-group">
+              <h2 class="surface-title" id="mapMainTitle">CITY INTELLIGENCE</h2>
+              <p class="surface-subtitle">City-wide events and traffic activity</p>
             </div>
 
-            <!-- Integrated Filter Toolbar -->
-            <div class="admin-filter-bar">
-              <div class="filter-group filter-status-pills">
-                <div class="vfilter-btn-group" id="verificationFilterGroup">
-                  <button type="button" class="vfilter-btn active" data-val="all">All</button>
-                  <button type="button" class="vfilter-btn" data-val="ACCEPTED">✓ Accepted</button>
-                  <button type="button" class="vfilter-btn" data-val="REPORTED">📤 Reported</button>
-                </div>
-              </div>
-              <div class="filter-group filter-search-wrap">
-                <input type="text" id="filterSearchInput" class="filter-search" placeholder="Search Event ID, Bus, Problem...">
-              </div>
-              <div class="filter-group">
-                <select id="filterCategorySelect" class="filter-select">
-                  <option value="all">All Categories</option>
-                  <option value="Road & Infrastructure">Road & Infrastructure</option>
-                  <option value="Traffic">Traffic</option>
-                  <option value="Safety">Safety</option>
-                </select>
-              </div>
-              <div class="filter-group">
-                <select id="filterDepartmentSelect" class="filter-select">
-                  <option value="all">All Departments</option>
-                  <option value="ROAD MAINTENANCE">Road Maintenance</option>
-                  <option value="TRAFFIC MANAGEMENT">Traffic Management</option>
-                  <option value="MUNICIPAL">Municipal</option>
-                  <option value="POLICE / EMERGENCY">Police / Emergency</option>
-                </select>
-              </div>
-              <div class="filter-group">
-                <select id="filterPrioritySelect" class="filter-select">
-                  <option value="all">All Priorities</option>
-                  <option value="HIGH">High Priority</option>
-                  <option value="MEDIUM">Medium</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </div>
-              <div class="filter-group" style="display: none;">
-                <select id="filterRiskSelect" class="filter-select">
-                  <option value="all">All Risk Levels</option>
-                  <option value="CRITICAL">Critical (76-100)</option>
-                  <option value="HIGH">High (51-75)</option>
-                  <option value="MEDIUM">Medium (26-50)</option>
-                  <option value="LOW">Low (0-25)</option>
-                </select>
-              </div>
-              <div class="filter-group" style="display: none;">
-                <select id="filterStatusSelect" class="filter-select">
-                  <option value="all">All Statuses</option>
-                  <option value="NEW">NEW</option>
-                  <option value="ASSIGNED">ASSIGNED</option>
-                  <option value="IN_PROGRESS">IN_PROGRESS</option>
-                  <option value="RESOLVED">RESOLVED</option>
-                  <option value="CLOSED">CLOSED</option>
-                </select>
-              </div>
-              <div class="filter-group" style="display: none;">
-                <select id="filterReportStatusSelect" class="filter-select">
-                  <option value="all">All Reports</option>
-                  <option value="PENDING">Pending (Not Sent)</option>
-                  <option value="SENT">Sent to Dept</option>
-                </select>
-              </div>
-              <div class="filter-actions">
-                <button id="clearFiltersBtn" class="btn btn-secondary btn-clear-filters" type="button">
-                  Clear Filters
+            <!-- Right: Primary Segmented Mode Switcher + Subtle Status Indicator -->
+            <div class="surface-header-right">
+              <div class="map-mode-segmented-toggle" role="tablist" aria-label="Map Intelligence Mode">
+                <button type="button" class="btn-mode-toggle active" id="btnModeEvents" role="tab" aria-selected="true" title="Events Map: individual urban infrastructure incidents">
+                  EVENTS
+                </button>
+                <button type="button" class="btn-mode-toggle" id="btnModeDensity" role="tab" aria-selected="false" title="Traffic Density: vehicle movement intelligence">
+                  TRAFFIC DENSITY
                 </button>
               </div>
-            </div>
-
-            <!-- Table Container -->
-            <div class="table-responsive">
-              <table class="admin-events-table" id="adminEventsTable">
-                <thead>
-                  <tr>
-                    <th>Event ID</th>
-                    <th>Category</th>
-                    <th>Problem</th>
-                    <th>Confidence</th>
-                    <th>Status</th>
-                    <th>Risk</th>
-                    <th>Priority</th>
-                    <th>Location (Lat, Lon)</th>
-                    <th>Time</th>
-                    <th>Bus ID</th>
-                    <th>Department</th>
-                    <th>Report</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody id="eventsTableBody">
-                  <!-- Rows dynamically populated by admin.js -->
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Empty State -->
-            <div class="admin-empty-state" id="tableEmptyState" style="display: none;">
-              <div class="empty-icon">📋</div>
-              <h4 class="empty-title">No events match current filter.</h4>
-              <p class="empty-desc">
-                Adjust the filters or wait for edge AI detections from the mobile sensor network.
-              </p>
+              <span class="marker-count-pill" id="mapEventCountBadge">0 markers</span>
             </div>
           </div>
 
+          <!-- Secondary Filter Row: Dynamic switching between Events and Traffic filters -->
+          <div class="map-secondary-filter-bar">
+            <!-- Active in EVENTS mode -->
+            <div class="sub-segmented-tabs" id="eventsSubFilterGroup" role="tablist" aria-label="Event Categories">
+              <span class="sub-filter-label">CATEGORY</span>
+              <button type="button" class="sub-tab-btn active" data-subcat="all">All</button>
+              <button type="button" class="sub-tab-btn" data-subcat="road">Roads</button>
+              <button type="button" class="sub-tab-btn" data-subcat="traffic">Traffic</button>
+              <button type="button" class="sub-tab-btn" data-subcat="safety">Safety</button>
+            </div>
+
+            <!-- Active in TRAFFIC DENSITY mode -->
+            <div class="density-filter-tabs" id="trafficDensitySubFilterGroup" style="display: none;" role="tablist" aria-label="Vehicle Filters">
+              <div class="density-segmented-group" id="densityVehicleSegmented">
+                <span class="sub-filter-label">VEHICLES</span>
+                <button type="button" class="btn-density-tab active" data-vtype="all">All Vehicles</button>
+                <button type="button" class="btn-density-tab" data-vtype="car">Cars</button>
+                <button type="button" class="btn-density-tab" data-vtype="motorcycle">Motorcycles</button>
+                <button type="button" class="btn-density-tab" data-vtype="bus">Buses</button>
+                <button type="button" class="btn-density-tab" data-vtype="truck">Trucks</button>
+              </div>
+
+              <div class="density-filter-field">
+                <label for="densityTimeFilter" class="density-filter-label">WINDOW</label>
+                <select id="densityTimeFilter" class="density-filter-select">
+                  <option value="30m">30 MIN</option>
+                  <option value="1h" selected>1 HOUR</option>
+                  <option value="6h">6 HOURS</option>
+                  <option value="24h">24 HOURS</option>
+                  <option value="all">ALL TIME</option>
+                </select>
+              </div>
+
+              <!-- Source Indicator (DEMO TRAFFIC DATA / LIVE TELEMETRY) -->
+              <span class="demo-data-badge" id="trafficDensitySourceBadge" style="display: none;">
+                DEMO TRAFFIC DATA
+              </span>
+            </div>
+
+            <!-- Hidden Preserved Select for script compatibility -->
+            <select id="densityVehicleFilter" class="density-filter-select" style="display: none;">
+              <option value="all">ALL VEHICLES</option>
+              <option value="car">CAR ONLY</option>
+              <option value="motorcycle">MOTORCYCLE ONLY</option>
+              <option value="bus">BUS ONLY</option>
+              <option value="truck">TRUCK ONLY</option>
+            </select>
+          </div>
+
+          <!-- Map Canvas Container with Floating Tools & Floating Legend Inside -->
+          <div class="map-canvas-container">
+            <div id="adminGisMap" class="map-canvas"></div>
+
+            <!-- Floating Map Control Group (Inside Map, Top Right) -->
+            <div class="floating-map-tools" id="floatingMapTools" aria-label="Map Navigation Tools">
+              <button id="fitAllEventsBtn" class="floating-tool-btn" type="button" title="Fit all markers in view" aria-label="Fit View">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                </svg>
+              </button>
+              <button id="recenterAdminMapBtn" class="floating-tool-btn" type="button" title="Center on Hyderabad" aria-label="Recenter">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="22" y1="12" x2="18" y2="12"/>
+                  <line x1="6" y1="12" x2="2" y2="12"/>
+                  <line x1="12" y1="6" x2="12" y2="2"/>
+                  <line x1="12" y1="22" x2="12" y2="18"/>
+                </svg>
+              </button>
+              <button id="refreshEventsBtn" class="floating-tool-btn" type="button" title="Refresh live telemetry" aria-label="Refresh">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Floating Heatmap Legend (Inside Map, Bottom Left - Active in DENSITY mode) -->
+            <div class="floating-heatmap-legend" id="floatingHeatmapLegend" style="display: none;">
+              <div class="f-legend-title">TRAFFIC DENSITY</div>
+              <div class="f-legend-bar-wrap">
+                <span class="f-legend-label">LOW</span>
+                <div class="f-gradient-strip"></div>
+                <span class="f-legend-label">HIGH</span>
+              </div>
+            </div>
+
+            <!-- Empty State Overlay for Traffic Density -->
+            <div class="density-empty-state" id="densityEmptyState" style="display: none;">
+              <div class="density-empty-card">
+                <span class="density-empty-icon">&#128202;</span>
+                <p class="density-empty-title">No vehicle density data available for this period.</p>
+                <span class="density-empty-subtitle">Vehicle density points will populate as bus camera telemetry is ingested.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Traffic Summary Panel (Below Map in Traffic Density Mode) -->
+          <div class="traffic-summary-panel" id="trafficSummaryPanel" style="display: none;">
+            <div class="traffic-summary-col">
+              <span class="ts-label">TOTAL VEHICLES</span>
+              <span class="ts-val" id="tsValTotal">0</span>
+            </div>
+            <div class="traffic-summary-col">
+              <span class="ts-label">ACTIVE OBSERVATION POINTS</span>
+              <span class="ts-val" id="tsValPoints">0</span>
+            </div>
+            <div class="traffic-summary-col">
+              <span class="ts-label">HIGH-DENSITY ZONES</span>
+              <span class="ts-val" id="tsValHighDensity">Gachibowli, Hitec City, Mehdipatnam</span>
+            </div>
+            <div class="traffic-summary-col">
+              <span class="ts-label">LAST UPDATED</span>
+              <span class="ts-val" id="tsValLastUpdated">Live Telemetry</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Recent Activity Feed (Clean Minimal List, Perfectly Aligned at Top) -->
+        <div class="stream-surface">
+          <div class="surface-header">
+            <h3 class="surface-title">RECENT ACTIVITY</h3>
+          </div>
+          <div class="activity-list" id="liveEventFeed">
+            <!-- Dynamically populated minimal activity feed -->
+          </div>
+          <div class="activity-empty" id="liveFeedEmptyState" style="display: none;">
+            <p>No recent activity detected</p>
+          </div>
         </div>
 
       </section>
 
-      <!-- ================================================================== -->
-      <!-- VIEW 7: DEPARTMENTS BREAKDOWN VIEW                                 -->
-      <!-- ================================================================== -->
-      <section id="view-departments" class="admin-view-section" style="display: none;">
-        <div class="glass-card">
-          <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary);">DEPARTMENT WORKLOAD BREAKDOWN</h2>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-            Automatic event-type to department assignments based on DrishtiYana smart-city taxonomy
-          </p>
-          <div class="admin-stats-grid" style="margin-top: 1.25rem;" id="deptCardsContainer">
-            <!-- Dynamically populated -->
+      <!-- 2D. CITY INTELLIGENCE INSIGHTS (Executive Domain Overview) -->
+      <section class="city-insights-section" aria-label="City Level Intelligence Insights">
+        <div class="insights-header">
+          <h3 class="insights-title">CITY INTELLIGENCE INSIGHTS</h3>
+          <span class="insights-subtitle">Executive summary across monitored urban sectors</span>
+        </div>
+
+        <div class="insights-grid">
+          <!-- Insight 1: Road Maintenance -->
+          <div class="insight-card" onclick="filterDepartmentFromView('road')">
+            <div class="insight-top">
+              <span class="insight-badge road">ROAD INTEGRITY</span>
+              <span class="insight-trend" id="insightRoadCount">Active</span>
+            </div>
+            <h4 class="insight-heading" id="insightRoadHeading">Pothole &amp; Surface Defects</h4>
+            <p class="insight-desc">Real-time pavement degradation detected by bus camera sensing. Automatically prioritized for public works repair.</p>
+            <div class="insight-action">
+              <span>View Road Incidents &rarr;</span>
+            </div>
+          </div>
+
+          <!-- Insight 2: Traffic Mobility -->
+          <div class="insight-card" onclick="filterDepartmentFromView('traffic')">
+            <div class="insight-top">
+              <span class="insight-badge traffic">TRANSIT MOBILITY</span>
+              <span class="insight-trend" id="insightTrafficCount">Monitored</span>
+            </div>
+            <h4 class="insight-heading">Urban Corridor Movement</h4>
+            <p class="insight-desc">Multi-class vehicle tracking across arterial avenues. High concentration detected near major transit interchanges.</p>
+            <div class="insight-action">
+              <span>View Traffic Density &rarr;</span>
+            </div>
+          </div>
+
+          <!-- Insight 3: Public Safety -->
+          <div class="insight-card" onclick="filterDepartmentFromView('safety')">
+            <div class="insight-top">
+              <span class="insight-badge safety">PUBLIC SAFETY</span>
+              <span class="insight-trend" id="insightSafetyCount">Alert</span>
+            </div>
+            <h4 class="insight-heading">Hazards &amp; Vulnerable Zones</h4>
+            <p class="insight-desc">Waterlogging, median divider gaps, and pedestrian safety hazard anomalies flagged for municipal action teams.</p>
+            <div class="insight-action">
+              <span>View Safety Incidents &rarr;</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preserved Elements for Script Compatibility -->
+        <div style="display: none;" aria-hidden="true">
+          <div id="simpleEventCardsGrid"></div>
+          <span id="categorySectionTitle"></span>
+          <span id="categorySectionCount"></span>
+          <div id="cardsEmptyState"></div>
+          <button id="refreshDensityBtn" type="button"></button>
+          <span id="densityValTotal">0</span>
+          <span id="densityValCars">0</span>
+          <span id="densityValMotorcycles">0</span>
+          <span id="densityValBuses">0</span>
+          <span id="densityValTrucks">0</span>
+          <div id="eventsMapActions"></div>
+          <div id="trafficDensityToolbar"></div>
+        </div>
+      </section>
+
+    </div>
+
+        <!-- Preserved Filter Inputs for Script Compatibility -->
+        <div style="display: none;" aria-hidden="true">
+          <input type="text" id="filterSearchInput" value="">
+          <select id="filterCategorySelect"><option value="all">all</option></select>
+          <select id="filterDepartmentSelect"><option value="all">all</option></select>
+          <select id="filterPrioritySelect"><option value="all">all</option></select>
+          <select id="filterRiskSelect"><option value="all">all</option></select>
+          <select id="filterStatusSelect"><option value="all">all</option></select>
+          <select id="filterReportStatusSelect"><option value="all">all</option></select>
+          <button id="clearFiltersBtn" type="button"></button>
+          <div id="verificationFilterGroup"></div>
+          <table id="adminEventsTable"><tbody id="eventsTableBody"></tbody></table>
+          <div id="tableEmptyState"></div>
+          <div id="deptCard-road"></div>
+          <div id="deptCard-traffic"></div>
+          <div id="deptCard-all"></div>
+          <span id="deptCountRoad">0</span>
+          <span id="deptCountTraffic">0</span>
+          <span id="deptCountAll">0</span>
+          <span id="selectedDeptHeading"></span>
+          <div id="deptStatusTabs">
+            <button data-sub="PENDING_REVIEW">Pending</button>
+            <button data-sub="VERIFIED">Verified</button>
+            <button data-sub="REPORTED">Reported</button>
+          </div>
+          <span>VIEW REPORT</span>
+          <span id="subCountAll">0</span>
+          <span id="subCountAccepted">0</span>
+          <span id="subCountReported">0</span>
+          <span id="subCountPending">0</span>
+          <span id="subCountVerified">0</span>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW: ROADS INTELLIGENCE (DEDICATED DOMAIN & ROAD DEFECT HEATMAP)               -->
+    <!-- ============================================================================== -->
+    <div id="view-roads" class="view-pane" style="display: none;">
+      
+      <!-- Roads Domain Header -->
+      <header class="domain-header">
+        <div class="domain-title-wrap">
+          <div class="domain-badge-wrap">
+            <span class="domain-badge road">ROAD NETWORK</span>
+            <span class="domain-status-live">Pavement Sensing Active</span>
+          </div>
+          <h2 class="domain-title">ROAD NETWORK INTELLIGENCE</h2>
+          <p class="domain-desc">Pavement surface integrity, structural degradation &amp; municipal road hazard monitoring</p>
+        </div>
+        <div class="domain-header-actions">
+          <button id="refreshRoadsBtn" class="btn-subtle" type="button">Refresh Road Telemetry</button>
+        </div>
+      </header>
+
+      <!-- Road Domain KPI Strip -->
+      <section class="metrics-row" aria-label="Road Network KPIs">
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 18h20M5 18l3-6 4 3 4-7 2 4 3-2 1 8"/>
+            </svg>
+            <span class="metric-label">TOTAL ROAD DEFECTS</span>
+          </div>
+          <span class="metric-value" id="roadStatTotal">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563EB;">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 8v8M8 12h8"/>
+            </svg>
+            <span class="metric-label">POTHOLES DETECTED</span>
+          </div>
+          <span class="metric-value" id="roadStatPotholes" style="color: #2563EB;">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #D97706;">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+            </svg>
+            <span class="metric-label">STRUCTURAL CRACKS</span>
+          </div>
+          <span class="metric-value" id="roadStatCracks" style="color: #D97706;">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #10B981;">
+              <path d="M9 11l3 3L22 4"/>
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            <span class="metric-label">UNRESOLVED DEFECTS</span>
+          </div>
+          <span class="metric-value" id="roadStatUnresolved">0</span>
+        </div>
+      </section>
+
+      <!-- 2-Column: Road Defect Heatmap (70%) | Priority Road Registry (30%) -->
+      <section class="overview-grid">
+        <div class="map-surface">
+          <div class="surface-header">
+            <div class="surface-title-group">
+              <h3 class="surface-title">ROAD DEFECT HEATMAP</h3>
+              <p class="surface-subtitle">Spatial concentration of pavement damage across urban corridors</p>
+            </div>
+            <div class="surface-header-right">
+              <span class="marker-count-pill" id="roadHeatmapCountBadge">0 defect zones</span>
+            </div>
+          </div>
+
+          <!-- Secondary Sub-Filter for Road Defect Types -->
+          <div class="map-secondary-filter-bar">
+            <div class="sub-segmented-tabs" id="roadDefectSubFilterGroup" role="tablist">
+              <span class="sub-filter-label">DEFECT TYPE</span>
+              <button type="button" class="sub-tab-btn active" data-roadfilter="all">All Road Defects</button>
+              <button type="button" class="sub-tab-btn" data-roadfilter="pothole">Potholes</button>
+              <button type="button" class="sub-tab-btn" data-roadfilter="crack">Surface Cracks</button>
+              <button type="button" class="sub-tab-btn" data-roadfilter="infra">Infrastructure</button>
+            </div>
+            <span class="demo-data-badge" id="roadDataSourceBadge" style="display: none;">REAL DATA</span>
+          </div>
+
+          <!-- Road Heatmap Canvas Container -->
+          <div class="map-canvas-container">
+            <div id="roadGisMap" class="map-canvas"></div>
+
+            <!-- Floating Navigation Tools inside Road Map -->
+            <div class="floating-map-tools" aria-label="Road Map Tools">
+              <button id="fitRoadMapBtn" class="floating-tool-btn" type="button" title="Fit all road defects in view">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                </svg>
+              </button>
+              <button id="recenterRoadMapBtn" class="floating-tool-btn" type="button" title="Center on Hyderabad">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
+                </svg>
+              </button>
+              <button id="refreshRoadMapBtn" class="floating-tool-btn" type="button" title="Refresh road defect layer">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Floating Road Heatmap Legend -->
+            <div class="floating-heatmap-legend">
+              <div class="f-legend-title">ROAD DEFECT INTENSITY</div>
+              <div class="f-legend-bar-wrap">
+                <span class="f-legend-label">LOW</span>
+                <div class="f-gradient-strip"></div>
+                <span class="f-legend-label">HIGH</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Priority Road Defects Feed -->
+        <div class="stream-surface">
+          <div class="surface-header">
+            <h3 class="surface-title">ROAD DEFECT REGISTRY</h3>
+          </div>
+          <div class="activity-list" id="roadsDefectFeed">
+            <!-- Dynamically populated road defects -->
+          </div>
+          <div class="activity-empty" id="roadsFeedEmptyState" style="display: none;">
+            <p>No road defects detected in this window</p>
           </div>
         </div>
       </section>
 
-      <!-- ================================================================== -->
-      <!-- VIEW 8: WORK ORDERS STANDBY VIEW                                   -->
-      <!-- ================================================================== -->
-      <section id="view-workorders" class="admin-view-section" style="display: none;">
-        <div class="glass-card">
-          <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary);">WORK ORDERS PIPELINE</h2>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-            Monitors work orders generated from finalized events
-          </p>
-          <div class="admin-empty-state" style="padding: 2.5rem 1rem;">
-            <div class="empty-icon">📝</div>
-            <h4 class="empty-title">Work Orders Staging Mode</h4>
-            <p class="empty-desc">
-              Events are currently assigned to their designated departments (e.g. <strong>Road Maintenance</strong>). Automatic work order dispatching and contractor tracking will be active in the next stage.
-            </p>
+      <!-- Road Defects Summary Table -->
+      <section class="section-surface">
+        <div class="surface-header-bar">
+          <div>
+            <h3 class="view-heading">ROAD INCIDENT AUDIT TABLE</h3>
+            <p class="view-subheading">Verified pavement degradation points detected by transit sensor cameras</p>
+          </div>
+        </div>
+        <div class="operational-table-wrap">
+          <table class="operational-table">
+            <thead>
+              <tr>
+                <th>DEFECT</th>
+                <th>CONFIDENCE</th>
+                <th>DETECTED TIME</th>
+                <th>BUS SENSOR</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="roadsTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW: TRAFFIC INTELLIGENCE (DEDICATED DOMAIN & TRAFFIC DENSITY HEATMAP)         -->
+    <!-- ============================================================================== -->
+    <div id="view-traffic" class="view-pane" style="display: none;">
+      
+      <!-- Traffic Domain Header -->
+      <header class="domain-header">
+        <div class="domain-title-wrap">
+          <div class="domain-badge-wrap">
+            <span class="domain-badge traffic">TRAFFIC MOBILITY</span>
+            <span class="domain-status-live">Multi-Class Fleet Flow</span>
+          </div>
+          <h2 class="domain-title">TRAFFIC MOBILITY &amp; TRANSIT INTELLIGENCE</h2>
+          <p class="domain-desc">Multi-class vehicle monitoring, arterial volume &amp; corridor congestion analytics</p>
+        </div>
+        <div class="domain-header-actions">
+          <button id="refreshTrafficBtn" class="btn-subtle" type="button">Refresh Telemetry</button>
+        </div>
+      </header>
+
+      <!-- Traffic Domain KPI Strip -->
+      <section class="metrics-row" aria-label="Traffic Mobility KPIs">
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563EB;">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            <span class="metric-label">ACTIVE OBSERVATIONS</span>
+          </div>
+          <span class="metric-value" id="trafficStatObservations" style="color: #2563EB;">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="8" rx="2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="19" r="2"/><path d="M5 11l2-6h10l2 6"/>
+            </svg>
+            <span class="metric-label">PASSENGER CARS</span>
+          </div>
+          <span class="metric-value" id="trafficStatCars">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="5" cy="16" r="3"/><circle cx="19" cy="16" r="3"/><path d="M12 16h3l3-7h-5l-2 4h-4"/>
+            </svg>
+            <span class="metric-label">TWO-WHEELERS</span>
+          </div>
+          <span class="metric-value" id="trafficStatMotorcycles">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #4F46E5;">
+              <rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>
+            </svg>
+            <span class="metric-label">BUSES &amp; TRUCKS</span>
+          </div>
+          <span class="metric-value" id="trafficStatCommercial" style="color: #4F46E5;">0</span>
+        </div>
+      </section>
+
+      <!-- 2-Column: Traffic Density Heatmap (70%) | Corridor Activity Feed (30%) -->
+      <section class="overview-grid">
+        <div class="map-surface">
+          <div class="surface-header">
+            <div class="surface-title-group">
+              <h3 class="surface-title">TRAFFIC DENSITY HEATMAP</h3>
+              <p class="surface-subtitle">Real-time multi-class vehicle spatial distribution</p>
+            </div>
+            <div class="surface-header-right">
+              <span class="marker-count-pill" id="trafficHeatmapCountBadge">0 zones</span>
+            </div>
+          </div>
+
+          <!-- Vehicle Type Filter Bar -->
+          <div class="map-secondary-filter-bar">
+            <div class="density-filter-tabs">
+              <div class="density-segmented-group" id="trafficViewVehicleSegmented">
+                <span class="sub-filter-label">VEHICLES</span>
+                <button type="button" class="btn-density-tab active" data-tvtype="all">All Vehicles</button>
+                <button type="button" class="btn-density-tab" data-tvtype="car">Cars</button>
+                <button type="button" class="btn-density-tab" data-tvtype="motorcycle">Motorcycles</button>
+                <button type="button" class="btn-density-tab" data-tvtype="bus">Buses</button>
+                <button type="button" class="btn-density-tab" data-tvtype="truck">Trucks</button>
+              </div>
+
+              <div class="density-filter-field">
+                <label for="trafficViewTimeFilter" class="density-filter-label">WINDOW</label>
+                <select id="trafficViewTimeFilter" class="density-filter-select">
+                  <option value="30m">30 MIN</option>
+                  <option value="1h" selected>1 HOUR</option>
+                  <option value="6h">6 HOURS</option>
+                  <option value="24h">24 HOURS</option>
+                  <option value="all">ALL TIME</option>
+                </select>
+              </div>
+
+              <span class="demo-data-badge live" id="trafficViewSourceBadge">LIVE TELEMETRY</span>
+            </div>
+          </div>
+
+          <!-- Traffic Heatmap Canvas Container -->
+          <div class="map-canvas-container">
+            <div id="trafficGisMap" class="map-canvas"></div>
+
+            <!-- Floating Navigation Tools -->
+            <div class="floating-map-tools" aria-label="Traffic Map Tools">
+              <button id="fitTrafficMapBtn" class="floating-tool-btn" type="button" title="Fit traffic observation points in view">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                </svg>
+              </button>
+              <button id="recenterTrafficMapBtn" class="floating-tool-btn" type="button" title="Center on Hyderabad">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
+                </svg>
+              </button>
+              <button id="refreshTrafficMapBtn" class="floating-tool-btn" type="button" title="Refresh vehicle observations">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Floating Traffic Heatmap Legend -->
+            <div class="floating-heatmap-legend">
+              <div class="f-legend-title">TRAFFIC DENSITY</div>
+              <div class="f-legend-bar-wrap">
+                <span class="f-legend-label">LOW</span>
+                <div class="f-gradient-strip"></div>
+                <span class="f-legend-label">HIGH</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Traffic Summary Panel -->
+          <div class="traffic-summary-panel">
+            <div class="traffic-summary-col">
+              <span class="ts-label">TOTAL VOLUME</span>
+              <span class="ts-val" id="trafficSummaryTotal">0</span>
+            </div>
+            <div class="traffic-summary-col">
+              <span class="ts-label">ACTIVE SENSING CLUSTERS</span>
+              <span class="ts-val" id="trafficSummaryClusters">0</span>
+            </div>
+            <div class="traffic-summary-col">
+              <span class="ts-label">PEAK ARTERIAL CORRIDORS</span>
+              <span class="ts-val">Gachibowli &bull; Hitec City &bull; Mehdipatnam</span>
+            </div>
+            <div class="traffic-summary-col">
+              <span class="ts-label">TELEMETRY STREAM</span>
+              <span class="ts-val">YOLO11n Vehicle Sensing</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Transit Corridor Activity Feed -->
+        <div class="stream-surface">
+          <div class="surface-header">
+            <h3 class="surface-title">CORRIDOR ACTIVITY</h3>
+          </div>
+          <div class="activity-list" id="trafficCorridorFeed">
+            <!-- Dynamically populated corridor activity -->
+          </div>
+          <div class="activity-empty" id="trafficFeedEmptyState" style="display: none;">
+            <p>No vehicle observation clusters available</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW: SAFETY INTELLIGENCE (DEDICATED DOMAIN & SAFETY RISK HEATMAP)             -->
+    <!-- ============================================================================== -->
+    <div id="view-safety" class="view-pane" style="display: none;">
+      
+      <!-- Safety Domain Header -->
+      <header class="domain-header">
+        <div class="domain-title-wrap">
+          <div class="domain-badge-wrap">
+            <span class="domain-badge safety">PUBLIC SAFETY</span>
+            <span class="domain-status-live">Hazard Monitoring</span>
+          </div>
+          <h2 class="domain-title">PUBLIC SAFETY &amp; HAZARD INTELLIGENCE</h2>
+          <p class="domain-desc">Urban flood risks, pedestrian vulnerabilities &amp; roadway danger tracking</p>
+        </div>
+        <div class="domain-header-actions">
+          <button id="refreshSafetyBtn" class="btn-subtle" type="button">Refresh Safety Telemetry</button>
+        </div>
+      </header>
+
+      <!-- Safety Domain KPI Strip -->
+      <section class="metrics-row" aria-label="Safety Risk KPIs">
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #DC2626;">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+            </svg>
+            <span class="metric-label">ACTIVE SAFETY ALERTS</span>
+          </div>
+          <span class="metric-value" id="safetyStatAlerts" style="color: #DC2626;">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284C7;">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            <span class="metric-label">WATERLOGGING &amp; FLOOD</span>
+          </div>
+          <span class="metric-value" id="safetyStatWaterlogging" style="color: #0284C7;">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #D97706;">
+              <circle cx="12" cy="7" r="4"/><path d="M5.5 21v-7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v7"/>
+            </svg>
+            <span class="metric-label">PEDESTRIAN RISKS</span>
+          </div>
+          <span class="metric-value" id="safetyStatPedestrian" style="color: #D97706;">0</span>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <svg class="metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #10B981;">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span class="metric-label">RESOLVED HAZARDS</span>
+          </div>
+          <span class="metric-value" id="safetyStatResolved">0</span>
+        </div>
+      </section>
+
+      <!-- 2-Column: Safety Heatmap (70%) | Critical Hazards Feed (30%) -->
+      <section class="overview-grid">
+        <div class="map-surface">
+          <div class="surface-header">
+            <div class="surface-title-group">
+              <h3 class="surface-title">SAFETY RISK HEATMAP</h3>
+              <p class="surface-subtitle">Spatial concentration of urban hazards and vulnerable roadway zones</p>
+            </div>
+            <div class="surface-header-right">
+              <span class="marker-count-pill" id="safetyHeatmapCountBadge">0 risk zones</span>
+            </div>
+          </div>
+
+          <!-- Secondary Filter Bar for Safety Categories -->
+          <div class="map-secondary-filter-bar">
+            <div class="sub-segmented-tabs" id="safetySubFilterGroup" role="tablist">
+              <span class="sub-filter-label">HAZARD CLASS</span>
+              <button type="button" class="sub-tab-btn active" data-sfilter="all">All Safety Hazards</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="water">Waterlogging</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="pedestrian">Pedestrian Risk</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="hazard">General Hazards</button>
+            </div>
+            <span class="demo-data-badge" id="safetyDataSourceBadge" style="display: none;">REAL DATA</span>
+          </div>
+
+          <!-- Safety Heatmap Canvas Container -->
+          <div class="map-canvas-container">
+            <div id="safetyGisMap" class="map-canvas"></div>
+
+            <!-- Floating Navigation Tools -->
+            <div class="floating-map-tools" aria-label="Safety Map Tools">
+              <button id="fitSafetyMapBtn" class="floating-tool-btn" type="button" title="Fit all safety incidents in view">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                </svg>
+              </button>
+              <button id="recenterSafetyMapBtn" class="floating-tool-btn" type="button" title="Center on Hyderabad">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
+                </svg>
+              </button>
+              <button id="refreshSafetyMapBtn" class="floating-tool-btn" type="button" title="Refresh safety layer">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Floating Safety Heatmap Legend -->
+            <div class="floating-heatmap-legend">
+              <div class="f-legend-title">SAFETY RISK INTENSITY</div>
+              <div class="f-legend-bar-wrap">
+                <span class="f-legend-label">LOW</span>
+                <div class="f-gradient-strip"></div>
+                <span class="f-legend-label">CRITICAL</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Critical Safety Alerts Feed -->
+        <div class="stream-surface">
+          <div class="surface-header">
+            <h3 class="surface-title">CRITICAL SAFETY ALERTS</h3>
+          </div>
+          <div class="activity-list" id="safetyAlertsFeed">
+            <!-- Dynamically populated safety alerts -->
+          </div>
+          <div class="activity-empty" id="safetyFeedEmptyState" style="display: none;">
+            <p>No safety alerts detected in this window</p>
           </div>
         </div>
       </section>
 
-      <!-- ================================================================== -->
-      <!-- VIEW 9: ANALYTICS VIEW                                             -->
-      <!-- ================================================================== -->
-      <section id="view-analytics" class="admin-view-section" style="display: none;">
-        <div class="glass-card">
-          <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary);">DEFECT & RISK ANALYTICS</h2>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-            Statistical analysis of detected road defects and risk distribution
-          </p>
-          <div class="admin-stats-grid" style="margin-top: 1.25rem;" id="analyticsCardsContainer">
-            <!-- Dynamically populated -->
+      <!-- Safety Incidents Audit Table -->
+      <section class="section-surface">
+        <div class="surface-header-bar">
+          <div>
+            <h3 class="view-heading">SAFETY INCIDENT REGISTRY</h3>
+            <p class="view-subheading">Public safety anomalies logged with geolocations for civic emergency response</p>
+          </div>
+        </div>
+        <div class="operational-table-wrap">
+          <table class="operational-table">
+            <thead>
+              <tr>
+                <th>INCIDENT</th>
+                <th>RISK LEVEL</th>
+                <th>DETECTED TIME</th>
+                <th>COORDINATES</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="safetyTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW: ALL EVENTS (HISTORICAL PERSISTENT SUPABASE DATASET)                     -->
+    <!-- ============================================================================== -->
+    <div id="view-events" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <div class="surface-header-bar">
+          <div>
+            <h2 class="view-heading">ALL EVENTS</h2>
+            <p class="view-subheading">Complete historical event registry retrieved permanently from Supabase.</p>
+          </div>
+          <div class="view-header-actions">
+            <span class="marker-count-pill" id="allEventsCountBadge">0 events</span>
+            <button id="refreshAllEventsBtn" class="btn-subtle" type="button">Refresh Data</button>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="all-events-filter-bar">
+          <div class="filter-item">
+            <label for="allEventsCategoryFilter" class="filter-label">CATEGORY</label>
+            <select id="allEventsCategoryFilter" class="filter-select">
+              <option value="all">All Categories</option>
+              <option value="Road & Infrastructure">Road &amp; Infrastructure</option>
+              <option value="Traffic">Traffic</option>
+              <option value="Safety">Safety</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label for="allEventsStatusFilter" class="filter-label">STATUS</label>
+            <select id="allEventsStatusFilter" class="filter-select">
+              <option value="all">All Statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="SENT">Sent</option>
+              <option value="SOLVED">Solved</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label for="allEventsDeptFilter" class="filter-label">DEPARTMENT</label>
+            <select id="allEventsDeptFilter" class="filter-select">
+              <option value="all">All Departments</option>
+            </select>
+          </div>
+
+          <div class="filter-item filter-search-item">
+            <label for="allEventsSearchInput" class="filter-label">SEARCH</label>
+            <input type="text" id="allEventsSearchInput" class="filter-input" placeholder="Search event, bus ID, location...">
+          </div>
+
+          <div class="filter-item filter-reset-item">
+            <button id="resetAllEventsFiltersBtn" class="btn-subtle" type="button">Reset Filters</button>
+          </div>
+        </div>
+
+        <!-- Operational Table -->
+        <div class="operational-table-wrap">
+          <table class="operational-table" id="allEventsTable">
+            <thead>
+              <tr>
+                <th>EVENT</th>
+                <th>CATEGORY</th>
+                <th>TIME</th>
+                <th>LOCATION</th>
+                <th>DEPARTMENT</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="allEventsTableBody">
+              <!-- Dynamically populated from Supabase -->
+            </tbody>
+          </table>
+          <div class="catalog-empty" id="allEventsEmptyState" style="display: none;">
+            <p>No events recorded yet.</p>
           </div>
         </div>
       </section>
+    </div>
 
-    </main>
-  </div>
+    <!-- ============================================================================== -->
+    <!-- VIEW: DEPARTMENTS BREAKDOWN VIEW (SEPARATE NAVIGATION)                          -->
+    <!-- ============================================================================== -->
+    <div id="view-departments" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <h2 class="view-heading">MUNICIPAL DEPARTMENTS</h2>
+        <p class="view-subheading">Automatic event routing and workload distribution across city authorities.</p>
+        <div class="departments-layout" id="deptCardsContainer">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+    </div>
 
-  <!-- Evidence Image High-Res Modal -->
-  <div id="imageModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; align-items: center; justify-content: center; padding: 2rem;">
-    <div style="position: relative; max-width: 90vw; max-height: 90vh;">
-      <button id="closeModalBtn" style="position: absolute; top: -40px; right: 0; background: transparent; border: none; color: #fff; font-size: 2rem; cursor: pointer;">&times;</button>
-      <img id="modalImg" src="" alt="High Resolution Evidence" style="max-width: 100%; max-height: 85vh; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+    <!-- ============================================================================== -->
+    <!-- VIEW: WORK ORDERS PIPELINE VIEW (SEPARATE NAVIGATION)                           -->
+    <!-- ============================================================================== -->
+    <div id="view-workorders" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <h2 class="view-heading">WORK ORDERS PIPELINE</h2>
+        <p class="view-subheading">Operational dispatch queue and municipal contractor repair tracking.</p>
+        
+        <div class="workorders-table-wrap">
+          <table class="operational-table">
+            <thead>
+              <tr>
+                <th>EVENT</th>
+                <th>DEPARTMENT</th>
+                <th>PRIORITY</th>
+                <th>CREATED</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="workordersTableBody">
+              <!-- Dynamically populated from dispatched events -->
+            </tbody>
+          </table>
+          <div class="workorders-empty" id="workordersEmptyState">
+            <p>No active work orders dispatched yet. Open an incident report and click &ldquo;View &amp; Dispatch Report&rdquo; to route repair orders.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ============================================================================== -->
+    <!-- VIEW: DATA-DRIVEN URBAN DEFECT ANALYTICS (REAL DATA DRIVEN DASHBOARD)          -->
+    <!-- ============================================================================== -->
+    <div id="view-analytics" class="view-pane" style="display: none;">
+      <section class="section-surface">
+        <div class="surface-header-bar">
+          <div>
+            <h2 class="view-heading">URBAN INTELLIGENCE ANALYTICS</h2>
+            <p class="view-subheading">Real-time defect distributions, incident timelines &amp; mobility trends derived from active telemetry.</p>
+          </div>
+          <!-- Time Range Filter -->
+          <div class="analytics-time-segmented" id="analyticsTimeSegmented">
+            <button type="button" class="btn-time-tab" data-time="today">Today</button>
+            <button type="button" class="btn-time-tab" data-time="7d">7 Days</button>
+            <button type="button" class="btn-time-tab" data-time="30d">30 Days</button>
+            <button type="button" class="btn-time-tab active" data-time="all">All Time</button>
+          </div>
+        </div>
+
+        <!-- Analytics Top KPIs Row -->
+        <div class="analytics-kpi-row">
+          <div class="stat-unit">
+            <span class="stat-unit-label">TOTAL RECORDED INCIDENTS</span>
+            <span class="stat-unit-value" id="anTotalIncidents">0</span>
+            <span class="stat-unit-desc">Aggregated across mobile transit sensing fleet</span>
+          </div>
+          <div class="stat-unit">
+            <span class="stat-unit-label">AVG AI DETECTION CONFIDENCE</span>
+            <span class="stat-unit-value" id="anAvgConfidence" style="color: #2563EB;">--%</span>
+            <span class="stat-unit-desc">Automated acceptance threshold &ge; 80%</span>
+          </div>
+          <div class="stat-unit">
+            <span class="stat-unit-label">CRITICAL REPAIRS REQUIRED</span>
+            <span class="stat-unit-value" id="anCriticalRate" style="color: #EF4444;">0</span>
+            <span class="stat-unit-desc">High risk score urban infrastructure incidents</span>
+          </div>
+          <div class="stat-unit">
+            <span class="stat-unit-label">MUNICIPAL RESOLUTION RATE</span>
+            <span class="stat-unit-value" id="anResolutionRate" style="color: #10B981;">0%</span>
+            <span class="stat-unit-desc">Dispatched &amp; completed work orders</span>
+          </div>
+        </div>
+
+        <!-- Analytics Grid 1: Incident Trend (65%) | Category Breakdown (35%) -->
+        <div class="analytics-charts-grid-primary">
+          <div class="chart-card">
+            <div class="chart-header">
+              <div>
+                <h4 class="chart-title">INCIDENT DETECTION TIMELINE</h4>
+                <span class="chart-subtitle">Event discovery trend across monitored period</span>
+              </div>
+              <div class="chart-legend-dots">
+                <span class="c-legend-dot blue"></span><span class="c-legend-text">Incidents</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap" id="chartIncidentTrend">
+              <!-- Dynamically populated SVG timeline chart -->
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <div>
+                <h4 class="chart-title">INCIDENT DOMAIN DISTRIBUTION</h4>
+                <span class="chart-subtitle">Proportional breakdown by sector</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap" id="chartCategoryDist">
+              <!-- Dynamically populated Category distribution bars -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Analytics Grid 2: Road Defects | Vehicle Volume | Resolution Status -->
+        <div class="analytics-charts-grid-secondary">
+          <div class="chart-card">
+            <div class="chart-header">
+              <div>
+                <h4 class="chart-title">ROAD DEFECT TYPES</h4>
+                <span class="chart-subtitle">Pavement surface degradation breakdown</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap" id="chartRoadDefects">
+              <!-- Dynamically populated Road defect breakdown -->
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <div>
+                <h4 class="chart-title">VEHICLE CLASSIFICATION</h4>
+                <span class="chart-subtitle">Multi-class traffic observation volume</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap" id="chartVehicleTypes">
+              <!-- Dynamically populated Vehicle breakdown -->
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <div>
+                <h4 class="chart-title">WORK ORDER STATUS</h4>
+                <span class="chart-subtitle">Incident lifecycle progression</span>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap" id="chartResolutionStatus">
+              <!-- Dynamically populated Status donut / bar -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Analytics Grid 3: Corridor Density Ranking -->
+        <div class="chart-card" style="margin-top: 1.5rem;">
+          <div class="chart-header">
+            <div>
+              <h4 class="chart-title">TOP TRANSIT CORRIDORS BY INCIDENT DENSITY</h4>
+              <span class="chart-subtitle">High concentration zones requiring municipal focus</span>
+            </div>
+          </div>
+          <div class="chart-canvas-wrap" id="chartCorridorRanking">
+            <!-- Dynamically populated Corridor ranking -->
+          </div>
+        </div>
+
+        <!-- Hidden container for background stats compatibility -->
+        <div style="display: none;" id="analyticsCardsContainer"></div>
+      </section>
+    </div>
+
+  </main>
+
+  <!-- ============================================================================== -->
+  <!-- 3. SLIDE-IN EVENT REPORT DRAWER (PROGRESSIVE DISCLOSURE OVERLAY)                -->
+  <!-- ============================================================================== -->
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+
+  <aside id="adminDetailPanel" class="report-drawer" aria-label="Event Report Drawer">
+    
+    <!-- Drawer Header -->
+    <div class="drawer-top-bar">
+      <span class="drawer-label">EVENT REPORT</span>
+      <button type="button" class="btn-close-drawer" id="closeDetailDrawerBtn" aria-label="Close report">&times;</button>
+    </div>
+
+    <!-- Fallback badges for script compatibility -->
+    <div style="display: none;" aria-hidden="true">
+      <span id="detailVerificationBadge">ACCEPTED</span>
+      <span id="detailStatusBadge">ACCEPTED</span>
+      <div id="detailPlaceholder"></div>
+    </div>
+
+    <!-- Drawer Content Scroll Area -->
+    <div class="drawer-content-scroll" id="detailBody">
+      <div id="detailContent" class="drawer-inner-flow">
+        
+        <!-- SECTION 1: EVIDENCE -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">EVIDENCE</span>
+          <div class="drawer-photo-frame">
+            <img id="detailEvidenceImg" src="" alt="Detection Evidence" class="drawer-photo" title="Click to view full size">
+            <div id="detailEvidenceUnavailable" style="display: none;" class="drawer-no-photo">
+              <span>Evidence frame unavailable</span>
+            </div>
+            <span class="drawer-photo-badge" id="detailEvidenceTag">BEST CANDIDATE FRAME</span>
+          </div>
+        </div>
+
+        <!-- SECTION 2: DETECTION -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">DETECTION</span>
+          <h2 class="drawer-item-title" id="detailProblem">Pothole</h2>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Class</span>
+              <span class="meta-field-value" id="detailCategoryBadge">Road &amp; Infrastructure</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Confidence</span>
+              <span class="meta-field-value conf-highlight" id="detailConf">92%</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Event ID</span>
+              <span class="meta-field-value mono" id="detailEvtId">--</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Observations</span>
+              <span class="meta-field-value" id="detailObservations">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 3: LOCATION & MAP JUMP -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">LOCATION</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Latitude</span>
+              <span class="meta-field-value mono" id="detailLat">--</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Longitude</span>
+              <span class="meta-field-value mono" id="detailLon">--</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Address</span>
+              <span class="meta-field-value" id="detailAddress">Resolving address...</span>
+            </div>
+          </div>
+
+          <button type="button" class="btn-drawer-map" id="btnViewOnMap">
+            VIEW ON MAP &rarr;
+          </button>
+        </div>
+
+        <!-- SECTION 4: SOURCE TELEMETRY -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">SOURCE</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Bus ID</span>
+              <span class="meta-field-value mono" id="detailBusId">BUS-101</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Camera</span>
+              <span class="meta-field-value mono" id="detailCameraId">CAM-01</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Detected Timestamp</span>
+              <span class="meta-field-value mono" id="detailDetectedTime">--</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Session ID</span>
+              <span class="meta-field-value mono" id="detailSessionId">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 5: PRIORITY & RISK -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">PRIORITY</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Priority</span>
+              <span class="meta-field-value" id="detailPriorityBadge">High</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Risk Score</span>
+              <span class="meta-field-value" id="detailRiskBadge">86</span>
+            </div>
+          </div>
+          <div style="display: none;" aria-hidden="true">
+            <select id="detailStatusSelect"><option value="NEW">NEW</option></select>
+          </div>
+        </div>
+
+        <!-- SECTION 6: ACTION & DISPATCH -->
+        <div class="drawer-group">
+          <span class="drawer-group-label">STATUS &amp; DISPATCH LIFECYCLE</span>
+          
+          <div class="meta-field-grid">
+            <div class="meta-field">
+              <span class="meta-field-name">Department</span>
+              <span class="meta-field-value dept-highlight" id="detailDispatchDept">Road Maintenance</span>
+            </div>
+            <div class="meta-field">
+              <span class="meta-field-name">Status Lifecycle</span>
+              <span class="meta-field-value" id="detailReportStatusBadge">PENDING</span>
+            </div>
+            <div class="meta-field full-span">
+              <span class="meta-field-name">Work Order</span>
+              <span class="meta-field-value" id="detailWorkOrder">Not Assigned</span>
+            </div>
+          </div>
+          <div style="display: none;" aria-hidden="true"><span id="detailDepartment"></span></div>
+
+          <!-- Direct Status Selector (Persists to Supabase) -->
+          <div class="status-selector-row">
+            <span class="meta-field-name" style="margin-bottom: 0.35rem; display: block;">LIFECYCLE STATUS (SUPABASE):</span>
+            <div class="status-button-group">
+              <button type="button" class="btn-status-toggle" id="btnLifecyclePending" data-status="PENDING">PENDING</button>
+              <button type="button" class="btn-status-toggle" id="btnLifecycleSent" data-status="SENT">SENT</button>
+              <button type="button" class="btn-status-toggle" id="btnLifecycleSolved" data-status="SOLVED">SOLVED</button>
+            </div>
+          </div>
+
+          <div class="dispatch-form-group">
+            <input type="text" id="reportNotesInput" placeholder="Add optional dispatch notes..." class="drawer-input">
+            <button id="sendReportBtn" type="button" class="btn-dispatch-action">
+              <span id="sendReportSpinner" class="spinner" style="display: none;"></span>
+              <span id="sendReportBtnText">VIEW &amp; DISPATCH REPORT</span>
+            </button>
+            <button id="markSolvedBtn" type="button" class="btn-dispatch-solved" style="display: none;">
+              ✓ MARK INCIDENT AS SOLVED
+            </button>
+            <div id="reportFeedback" style="display: none;" class="dispatch-feedback"></div>
+          </div>
+        </div>
+
+        <!-- Close Drawer Button -->
+        <button type="button" class="btn-drawer-dismiss" id="btnCloseReportBottom">
+          CLOSE REPORT
+        </button>
+
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================================================================== -->
+  <!-- 4. MODALS (HIGH-RES EVIDENCE & MUNICIPAL REPORT PREVIEW)                       -->
+  <!-- ============================================================================== -->
+  
+  <!-- High-Res Evidence Modal -->
+  <div id="imageModal" class="full-modal" style="display: none;">
+    <div class="modal-inner">
+      <button id="closeModalBtn" class="modal-close" aria-label="Close modal">&times;</button>
+      <img id="modalImg" src="" alt="Full Evidence Snapshot" class="modal-large-img">
     </div>
   </div>
 
-  <!-- Official Department Report Preview Modal -->
-  <div id="confirmReportModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 10000; align-items: center; justify-content: center; padding: 1.5rem;">
-    <div class="report-preview-box">
-      <div class="report-header-banner">
-        <div class="report-seal-title">
-          <span style="font-size: 1.5rem;">🏛️</span>
-          <div>
-            <h3 style="margin: 0; font-size: 1.05rem; color: var(--text-heading); font-weight: 800;">OFFICIAL MUNICIPAL REPORT PREVIEW</h3>
-            <span style="font-size: 0.72rem; color: var(--text-muted);">DRISHTIYANA Urban Intelligence Sensor Dispatch System</span>
-          </div>
+  <!-- Department Report Confirmation Modal -->
+  <div id="confirmReportModal" class="full-modal" style="display: none;">
+    <div class="report-preview-sheet">
+      <div class="sheet-header">
+        <div>
+          <h3 class="sheet-title">OFFICIAL MUNICIPAL REPORT</h3>
+          <span class="sheet-sub">DrishtiYana Incident Dispatch</span>
         </div>
-        <span class="report-badge-official">READY FOR DISPATCH</span>
+        <span class="ready-badge">READY FOR TRANSMISSION</span>
       </div>
 
-      <div style="font-size: 0.82rem; color: var(--text-body); line-height: 1.45;">
-        The verified incident detailed below will be officially transmitted to the designated municipal department:
-      </div>
+      <p class="sheet-intro">
+        The verified incident below will be transmitted to the designated municipal department:
+      </p>
 
-      <!-- Key Dispatch Attributes -->
-      <div class="report-field-grid">
-        <div class="report-field" style="grid-column: 1 / -1; background: #ECFDF5; padding: 0.6rem 0.75rem; border-radius: 6px; border: 1.5px solid #10B981;">
-          <span class="report-field-label" style="color: #065F46;">To (Destination Authority):</span>
-          <span class="report-field-val" id="confirmModalDept" style="color: #047857; font-size: 1rem; font-weight: 800;">ROAD MAINTENANCE</span>
+      <div class="sheet-meta-grid">
+        <div class="sheet-dept-banner">
+          <span class="sheet-meta-label">Destination Authority</span>
+          <span id="confirmModalDept" class="sheet-dept-name">ROAD MAINTENANCE</span>
         </div>
-
-        <div class="report-field" style="grid-column: 1 / -1;">
-          <span class="report-field-label">Subject:</span>
-          <span class="report-field-val" id="reportPreviewSubject">Pothole Detected — High Priority</span>
+        <div>
+          <span class="sheet-meta-label">Incident ID</span>
+          <span class="sheet-meta-val mono" id="confirmModalEventId">--</span>
         </div>
-
-        <div class="report-field">
-          <span class="report-field-label">Incident / Event ID:</span>
-          <span class="report-field-val" id="confirmModalEventId">--</span>
+        <div>
+          <span class="sheet-meta-label">Problem</span>
+          <span class="sheet-meta-val" id="confirmModalProblem">--</span>
         </div>
-
-        <div class="report-field">
-          <span class="report-field-label">Detected Problem:</span>
-          <span class="report-field-val" id="confirmModalProblem">--</span>
+        <div>
+          <span class="sheet-meta-label">Confidence</span>
+          <span class="sheet-meta-val" id="confirmModalConf">--</span>
         </div>
-
-        <div class="report-field">
-          <span class="report-field-label">AI Model Confidence:</span>
-          <span class="report-field-val" id="confirmModalConf" style="color: #059669; font-weight: 700;">--</span>
+        <div>
+          <span class="sheet-meta-label">Priority</span>
+          <span class="sheet-meta-val" id="reportPreviewPriority">HIGH</span>
         </div>
-
-        <div class="report-field">
-          <span class="report-field-label">Status:</span>
-          <span class="report-field-val"><span class="badge-v-verified" style="font-size: 0.72rem;">✓ ACCEPTED</span></span>
+        <div style="grid-column: 1 / -1;">
+          <span class="sheet-meta-label">Subject</span>
+          <span class="sheet-meta-val" id="reportPreviewSubject">--</span>
         </div>
-
-        <div class="report-field">
-          <span class="report-field-label">Priority:</span>
-          <span class="report-field-val" id="reportPreviewPriority">HIGH</span>
+        <div style="grid-column: 1 / -1;">
+          <span class="sheet-meta-label">Timestamp</span>
+          <span class="sheet-meta-val mono" id="reportPreviewTimestamp">--</span>
         </div>
-
-        <div class="report-field">
-          <span class="report-field-label">Detected Date & Time:</span>
-          <span class="report-field-val" id="reportPreviewTimestamp">--</span>
-        </div>
-
-        <div class="report-field" style="grid-column: 1 / -1;">
-          <span class="report-field-label">Location Telemetry & Address:</span>
-          <span class="report-field-val" id="reportPreviewLocation">--</span>
+        <div style="grid-column: 1 / -1;">
+          <span class="sheet-meta-label">Location</span>
+          <span class="sheet-meta-val" id="reportPreviewLocation">--</span>
         </div>
       </div>
 
-      <!-- Physical Evidence Preview -->
-      <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-        <span class="report-field-label">Physical Camera Evidence:</span>
-        <img id="reportPreviewEvidenceImg" src="" alt="Incident Evidence" class="report-evidence-preview" style="display: none;">
-        <div id="reportPreviewEvidencePlaceholder" style="background: #F1F5F9; border: 1.5px dashed #CBD5E1; border-radius: 6px; padding: 1.25rem; text-align: center; color: #64748B; font-size: 0.8rem;">
-          📷 Evidence frame snapshot will be attached
+      <div class="sheet-photo-wrap">
+        <span class="sheet-meta-label">Camera Evidence Frame:</span>
+        <img id="reportPreviewEvidenceImg" src="" alt="Evidence Frame" class="sheet-photo" style="display: none;">
+        <div id="reportPreviewEvidencePlaceholder" class="sheet-photo-placeholder">
+          Evidence frame will be attached
         </div>
       </div>
 
-      <!-- Description -->
-      <div class="report-desc-box">
-        <strong>Official Municipal Work Notice:</strong>
-        <p id="reportPreviewDesc" style="margin: 0.3rem 0 0 0; font-size: 0.78rem; color: #475569;">
-          A road defect (Pothole) has been identified by the DRISHTIYANA mobile sensor network and logged for prompt inspection and repair.
+      <div class="sheet-desc-box">
+        <p id="reportPreviewDesc" class="sheet-desc-text">
+          A road defect has been logged by the DRISHTIYANA mobile sensor network for municipal inspection and repair.
         </p>
       </div>
 
-      <div style="display: flex; gap: 0.75rem; justify-content: flex-end; border-top: 1px solid #E2E8F0; padding-top: 1rem;">
-        <button id="cancelReportBtn" type="button" class="btn btn-secondary" style="padding: 0.5rem 1.15rem; font-size: 0.82rem; cursor: pointer;">
-          Cancel
-        </button>
-        <button id="confirmSendReportBtn" type="button" class="btn btn-primary" style="padding: 0.55rem 1.45rem; font-size: 0.84rem; font-weight: 800; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
-          <span>📤</span>
-          <span>SEND REPORT TO DEPARTMENT</span>
+      <div class="sheet-actions">
+        <button id="cancelReportBtn" type="button" class="btn-subtle">Cancel</button>
+        <button id="confirmSendReportBtn" type="button" class="btn-primary-compact">
+          Transmit Report
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Admin Portal JS Logic -->
+  <!-- Admin Portal Script -->
   <script src="admin.js"></script>
 </body>
 </html>

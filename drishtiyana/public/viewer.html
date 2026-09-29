@@ -16,17 +16,9 @@
   <!-- Top Navigation / Header -->
   <header class="app-header">
     <div class="brand">
-      <div class="brand-icon">
-        <svg viewBox="0 0 24 24">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-          <line x1="8" y1="21" x2="16" y2="21"></line>
-          <line x1="12" y1="17" x2="12" y2="21"></line>
-        </svg>
-      </div>
-      <div>
-        <h1 class="brand-title">DRISHTIYANA</h1>
-        <p class="brand-subtitle">EDGE MONITOR STATION</p>
-      </div>
+      <img src="/assets/drishtiyana-logo-trans.png" alt="DrishtiYana" class="brand-logo-img">
+      <div class="brand-badge-divider"></div>
+      <span class="badge-station-title">EDGE MONITOR STATION</span>
     </div>
     
     <div class="header-badges">
@@ -234,42 +226,44 @@
           </div>
         </div>
 
-        <!-- Edge AI Status Pills -->
-        <div class="edge-ai-badges" style="margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
+        <!-- Edge AI Status Pills: AI PIPELINE (Dual-Stream First-Class Architecture) -->
+        <div class="edge-ai-badges" style="margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
           <span class="badge" id="aiStatusBadge">
-            <span class="status-dot" id="aiStatusDot"></span>
-            <span id="aiStatusText">EDGE AI: STANDBY</span>
+            <span class="status-dot active" id="aiStatusDot"></span>
+            <span id="aiStatusText">AI PIPELINE: RUNNING</span>
           </span>
-          <span class="badge badge-primary" id="aiYoloBadge">YOLO: ACTIVE</span>
+          <span class="badge badge-primary" id="aiPotholeBadge">POTHOLE AI: ACTIVE</span>
+          <span class="badge badge-primary" id="aiVehicleBadge" style="background: rgba(14, 165, 233, 0.2); border-color: rgba(14, 165, 233, 0.4); color: #38bdf8;">VEHICLE AI (yolo11n): ACTIVE</span>
+          <span class="badge" id="aiGpsBadge">GPS MATCHING: ACTIVE</span>
+          <span class="badge" id="aiEventBadge">EVENT PROCESSING: ACTIVE</span>
           <span class="badge" id="aiRedisBadge">REDIS: CONNECTED</span>
-          <span class="badge" id="aiServerBadge">SERVER: CONNECTED</span>
         </div>
 
-        <!-- Edge AI Metrics Grid -->
+        <!-- Edge AI Metrics Grid: Simultaneous Pothole & Vehicle Telemetry -->
         <div class="telemetry-grid" style="margin-top: 1rem;">
           <div class="telemetry-item">
             <span class="telemetry-label">FRAMES PROCESSED</span>
             <span class="telemetry-val" id="aiFramesVal">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">CURRENT DETECTIONS</span>
-            <span class="telemetry-val" id="aiDetectionsVal">0</span>
+            <span class="telemetry-label">POTHOLES (CURRENT)</span>
+            <span class="telemetry-val" id="aiDetectionsVal" style="color: #f59e0b;">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">ACTIVE CANDIDATES</span>
-            <span class="telemetry-val" id="aiActiveCandidatesVal" style="color: var(--color-warning);">0</span>
+            <span class="telemetry-label">VEHICLES (CURRENT)</span>
+            <span class="telemetry-val" id="aiVehiclesVal" style="color: #38bdf8;">0</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">FINALIZED EVENTS</span>
-            <span class="telemetry-val" id="aiFinalizedEventsVal" style="color: var(--color-primary);">0</span>
+            <span class="telemetry-label">VEHICLE BREAKDOWN</span>
+            <span class="telemetry-val" id="aiVehicleBreakdownVal" style="font-size: 0.85rem;">0C &bull; 0M &bull; 0B &bull; 0T</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">LAST POTHOLE CONF</span>
+            <span class="telemetry-label">POTHOLE CONFIDENCE</span>
             <span class="telemetry-val" id="aiLastConfVal">0.0%</span>
           </div>
           <div class="telemetry-item">
-            <span class="telemetry-label">CANDIDATE OBS</span>
-            <span class="telemetry-val" id="aiCandidateObsVal">0</span>
+            <span class="telemetry-label">VEHICLE GPS STATUS</span>
+            <span class="telemetry-val" id="aiVehicleGpsVal" style="font-size: 0.8rem; color: var(--color-live);">STANDBY</span>
           </div>
         </div>
 
@@ -543,7 +537,7 @@
             </div>
           </div>
 
-          <!-- Processing Telemetry Metrics Grid -->
+          <!-- Processing Telemetry Metrics Grid: Dual-Stream AI (Potholes + Vehicles) -->
           <div class="telemetry-grid" style="margin-top: 1rem;">
             <div class="telemetry-item">
               <span class="telemetry-label">FRAMES PROCESSED</span>
@@ -562,12 +556,12 @@
               <span class="telemetry-val" id="uploadAiDetectionsVal" style="color: #f59e0b;">0</span>
             </div>
             <div class="telemetry-item">
-              <span class="telemetry-label">NEW EVENTS (&gt;10m)</span>
-              <span class="telemetry-val" id="uploadAiCreatedVal" style="color: #10b981;">0</span>
+              <span class="telemetry-label">VEHICLES DETECTED</span>
+              <span class="telemetry-val" id="uploadAiVehiclesVal" style="color: #38bdf8;">0</span>
             </div>
             <div class="telemetry-item">
-              <span class="telemetry-label">MERGED / UPDATED (&lt;10m)</span>
-              <span class="telemetry-val" id="uploadAiUpdatedVal" style="color: #06b6d4;">0</span>
+              <span class="telemetry-label">VEHICLE BREAKDOWN</span>
+              <span class="telemetry-val" id="uploadAiVehicleBreakdownVal" style="font-size: 0.85rem; color: #a5f3fc;">0C &bull; 0M &bull; 0B &bull; 0T</span>
             </div>
           </div>
         </div>

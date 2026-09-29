@@ -162,6 +162,11 @@ const uploadAiGpsVal = document.getElementById('uploadAiGpsVal');
 const uploadAiDetectionsVal = document.getElementById('uploadAiDetectionsVal');
 const uploadAiCreatedVal = document.getElementById('uploadAiCreatedVal');
 const uploadAiUpdatedVal = document.getElementById('uploadAiUpdatedVal');
+const uploadAiVehiclesVal = document.getElementById('uploadAiVehiclesVal');
+const uploadAiVehicleBreakdownVal = document.getElementById('uploadAiVehicleBreakdownVal');
+const aiVehiclesVal = document.getElementById('aiVehiclesVal');
+const aiVehicleBreakdownVal = document.getElementById('aiVehicleBreakdownVal');
+const aiVehicleGpsVal = document.getElementById('aiVehicleGpsVal');
 let aiProgressPollingTimer = null;
 
 // ==============================================================================
@@ -875,8 +880,14 @@ function handleVideoProcessingProgress(data) {
   }
 
   if (uploadAiDetectionsVal) uploadAiDetectionsVal.textContent = data.potholes_found || 0;
-  if (uploadAiCreatedVal) uploadAiCreatedVal.textContent = data.events_created || 0;
-  if (uploadAiUpdatedVal) uploadAiUpdatedVal.textContent = data.events_updated || 0;
+  if (uploadAiVehiclesVal) uploadAiVehiclesVal.textContent = data.vehicles_found !== undefined ? data.vehicles_found : (data.current_frame_vehicles || 0);
+  if (uploadAiVehicleBreakdownVal) {
+    const c = data.car_count || 0;
+    const m = data.motorcycle_count || 0;
+    const b = data.bus_count || 0;
+    const t = data.truck_count || 0;
+    uploadAiVehicleBreakdownVal.textContent = `${c}C • ${m}M • ${b}B • ${t}T`;
+  }
 
   if (data.status === 'COMPLETED') {
     if (uploadAiStatusBadge) {
@@ -1345,6 +1356,24 @@ async function captureAndProcessEdgeFrame() {
 function handleEdgeFrameResult(data) {
   if (aiFramesVal) aiFramesVal.textContent = data.frame_id;
   if (aiDetectionsVal) aiDetectionsVal.textContent = data.detections_count || 0;
+  if (aiVehiclesVal) aiVehiclesVal.textContent = data.total_vehicles || 0;
+
+  if (aiVehicleBreakdownVal && data.vehicle_counts) {
+    const vc = data.vehicle_counts;
+    aiVehicleBreakdownVal.textContent = `${vc.car || 0}C • ${vc.motorcycle || 0}M • ${vc.bus || 0}B • ${vc.truck || 0}T`;
+  }
+
+  if (aiVehicleGpsVal) {
+    aiVehicleGpsVal.textContent = data.vehicle_gps_status || 'STANDBY';
+    if (data.vehicle_gps_status && data.vehicle_gps_status.includes('unavailable')) {
+      aiVehicleGpsVal.style.color = '#f59e0b';
+    } else if (data.vehicle_gps_status && data.vehicle_gps_status.includes('MATCHED')) {
+      aiVehicleGpsVal.style.color = '#10b981';
+    } else {
+      aiVehicleGpsVal.style.color = 'var(--text-muted)';
+    }
+  }
+
   if (aiActiveCandidatesVal) aiActiveCandidatesVal.textContent = data.active_candidates_count || 0;
   if (aiFinalizedEventsVal) aiFinalizedEventsVal.textContent = data.finalized_events_count || 0;
 
@@ -1356,25 +1385,22 @@ function handleEdgeFrameResult(data) {
   }
 
   // Update Status Badges
-  if (aiYoloBadge) {
-    aiYoloBadge.textContent = 'YOLO: ACTIVE';
-    aiYoloBadge.className = 'badge badge-primary';
+  if (aiPotholeBadge) {
+    aiPotholeBadge.textContent = 'POTHOLE AI: ACTIVE';
+    aiPotholeBadge.className = 'badge badge-primary';
   }
-  if (aiRedisBadge) {
-    const rMode = data.redis_status || 'CONNECTED';
-    const isOffline = rMode.toUpperCase().includes('DISCONNECTED');
-    aiRedisBadge.textContent = `REDIS: ${isOffline ? 'DISCONNECTED' : 'CONNECTED'}`;
-    aiRedisBadge.className = `badge ${isOffline ? 'badge-offline' : 'badge-live'}`;
-  }
-  if (aiServerBadge) {
-    const sStat = data.server_status || 'CONNECTED';
-    aiServerBadge.textContent = `SERVER: ${sStat}`;
-    aiServerBadge.className = `badge ${sStat === 'CONNECTED' ? 'badge-live' : (sStat === 'PENDING' ? 'badge-warning' : 'badge-offline')}`;
+  if (aiVehicleBadge) {
+    aiVehicleBadge.textContent = 'VEHICLE AI (yolo11n): ACTIVE';
   }
 
   // Update latest event evidence panel
-  if (data.latest_event && data.annotated_frame_base64) {
-    handleEdgeEventDetected(data.latest_event, data.annotated_frame_base64);
+  if (data.annotated_frame_base64 && (data.detections_count > 0 || data.total_vehicles > 0)) {
+    if (data.latest_event) {
+      handleEdgeEventDetected(data.latest_event, data.annotated_frame_base64);
+    } else if (aiEvidenceBox && aiEvidenceImg) {
+      aiEvidenceBox.style.display = 'grid';
+      aiEvidenceImg.src = `data:image/jpeg;base64,${data.annotated_frame_base64}`;
+    }
   }
 }
 

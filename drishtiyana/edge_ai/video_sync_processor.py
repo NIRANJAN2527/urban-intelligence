@@ -37,9 +37,11 @@ import requests
 
 from enhancement import enhance_frame
 from detector import PotholeDetector, DEFAULT_MODEL_PATH
+from vehicle_detector import VehicleDetector
 from redis_tracker import RedisCandidateManager
 from gps_matcher import get_gps_for_video_timestamp, parse_timestamp_to_ms
 from risk_assessment import calculate_pothole_risk
+
 
 
 # ==============================================================================
@@ -292,15 +294,17 @@ def process_uploaded_video(
     camera_id: str = "CAM-01",
     video_source: Optional[str] = None,
     detector: Optional[PotholeDetector] = None,
+    vehicle_detector: Optional[VehicleDetector] = None,
     redis_tracker: Optional[RedisCandidateManager] = None,
     node_backend_url: str = "http://127.0.0.1:3000",
     dispatch_to_server: bool = True,
     progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
-    frame_step: int = 2
+    frame_step: int = 2,
+    max_frames: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Executes the complete 7-step Timestamp Synchronization and Pothole AI Pipeline
-    on an uploaded recorded video.
+    on an uploaded recorded video, along with independent vehicle detection & counting.
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found at: {video_path}")
@@ -347,10 +351,20 @@ def process_uploaded_video(
         detector = PotholeDetector()
         owns_detector = True
 
+    owns_vehicle_detector = False
+    if vehicle_detector is None:
+        try:
+            vehicle_detector = VehicleDetector()
+            owns_vehicle_detector = True
+        except Exception as v_err:
+            print(f"[Uploaded Video Sync Notice] VehicleDetector not loaded: {v_err}")
+            vehicle_detector = None
+
     owns_redis = False
     if redis_tracker is None:
         redis_tracker = RedisCandidateManager()
         owns_redis = True
+
 
     # Tracking state
     processed_frames = 0
@@ -361,12 +375,23 @@ def process_uploaded_video(
     frame_index = 0
     t_pipeline_start = time.time()
     last_progress_report = 0.0
+    last_vehicle_obs_sec = -10.0
+
+    # Vehicle Tracking State
+    total_vehicles_detected = 0
+    total_cars_detected = 0
+    total_motorcycles_detected = 0
+    total_buses_detected = 0
+    total_trucks_detected = 0
+    vehicle_observations_dispatched = 0
 
     # --------------------------------------------------------------------------
     # STEPS 3 - 7: Sequential Frame Processing & Timestamp Sync
     # --------------------------------------------------------------------------
     try:
         while cap.isOpened():
+            if max_frames is not None and frame_index >= max_frames:
+                break
             ret, frame = cap.read()
             if not ret or frame is None:
                 break
@@ -387,14 +412,81 @@ def process_uploaded_video(
 
             # STEP 4: Nearest GPS lookup using calculated frame timestamp
             gps_match = get_gps_for_video_timestamp(frame_timestamp_ms, gps_records)
+            has_gps = bool(gps_match and gps_match.get("latitude") is not None and gps_match.get("longitude") is not None)
 
-            # STEP 5: Existing Image Enhancement Pipeline (CLAHE, Brightness, Sharpening)
-            enhanced_frame = enhance_frame(frame)
+            # ==================================================================
+            # DUAL INDEPENDENT AI STREAMS PER FRAME
+            # ==================================================================
+            
+            # STREAM 1: POTHOLE DETECTION (Isolated)
+            accepted_detections, annotated_frame = [], None
+            try:
+                enhanced_frame = enhance_frame(frame)
+                accepted_detections, annotated_frame = detector.detect(enhanced_frame)
+            except Exception as p_err:
+                print(f"[Pothole Frame Error] Frame {current_frame_id}: {p_err}")
 
-            # STEP 5 (cont): Existing YOLO pothole detection (confidence >= 0.80)
-            accepted_detections, annotated_frame = detector.detect(enhanced_frame)
+            # STREAM 2: VEHICLE DETECTION (Isolated on raw original frame)
+            veh_res = None
+            v_counts = {"car": 0, "motorcycle": 0, "bus": 0, "truck": 0, "total": 0}
+            v_total = 0
+            v_detections = []
+            if vehicle_detector is not None:
+                try:
+                    veh_res = vehicle_detector.detect(frame)
+                    if veh_res:
+                        v_counts = veh_res.get("counts", v_counts)
+                        v_total = veh_res.get("total_vehicles", 0)
+                        v_detections = veh_res.get("detections", [])
+
+                        total_vehicles_detected += v_total
+                        total_cars_detected += v_counts.get("car", 0)
+                        total_motorcycles_detected += v_counts.get("motorcycle", 0)
+                        total_buses_detected += v_counts.get("bus", 0)
+                        total_trucks_detected += v_counts.get("truck", 0)
+                except Exception as v_err:
+                    print(f"[VEHICLE ERROR]\nframe_number={current_frame_id}\nerror={v_err}")
+
+            # Required Per-Frame Console Verification Output
+            print(f"[FRAME]\nframe_number={current_frame_id}\npothole_detection={len(accepted_detections)}\nvehicle_detection={v_total}\ncar={v_counts.get('car', 0)}\nmotorcycle={v_counts.get('motorcycle', 0)}\nbus={v_counts.get('bus', 0)}\ntruck={v_counts.get('truck', 0)}")
+
+            # Vehicle Observation Dispatch (Gated by valid GPS, sampled per second of video time)
+            if v_total > 0 and (elapsed_seconds - last_vehicle_obs_sec >= 1.0):
+                last_vehicle_obs_sec = elapsed_seconds
+                lat_val = gps_match.get("latitude") if gps_match else None
+                lon_val = gps_match.get("longitude") if gps_match else None
+
+                print(f"[VEHICLE DISPATCH DEBUG]\nframe_number={current_frame_id}\nvehicles={v_total}\ngps_match={str(has_gps).lower()}\nlatitude={lat_val}\nlongitude={lon_val}\ndispatch={str(has_gps and dispatch_to_server).lower()}")
+                if not has_gps:
+                    print(f"[VEHICLE DISPATCH ALERT] VEHICLE DETECTED BUT NOT DISPATCHED BECAUSE GPS MATCH FAILED.")
+
+                if has_gps and dispatch_to_server:
+                    obs_payload = {
+                        "session_id": session_id,
+                        "bus_id": bus_id,
+                        "camera_id": camera_id,
+                        "timestamp": frame_timestamp_iso,
+                        "latitude": gps_match["latitude"],
+                        "longitude": gps_match["longitude"],
+                        "car_count": v_counts.get("car", 0),
+                        "motorcycle_count": v_counts.get("motorcycle", 0),
+                        "bus_count": v_counts.get("bus", 0),
+                        "truck_count": v_counts.get("truck", 0),
+                        "total_vehicles": v_total,
+                        "detections": v_detections,
+                        "source_type": "UPLOAD"
+                    }
+                    try:
+                        resp = requests.post(f"{node_backend_url}/api/edge/vehicle-observations", json=obs_payload, timeout=1.5)
+                        if resp.status_code in (200, 201):
+                            vehicle_observations_dispatched += 1
+                        else:
+                            print(f"[VEHICLE DISPATCH ERROR] Server returned HTTP {resp.status_code}: {resp.text}")
+                    except Exception as req_err:
+                        print(f"[VEHICLE DISPATCH ERROR] Failed to send observation to server: {req_err}")
 
             processing_timestamp = datetime.now(timezone.utc).isoformat()
+
 
             # STEP 6 & 7: Associate Frame + Timestamp + GPS with Detections & Redis Ingestion
             if len(accepted_detections) > 0 and redis_tracker:
@@ -451,6 +543,13 @@ def process_uploaded_video(
                         "timestamp": gps_match.get("gps_timestamp") if gps_match else None
                     },
                     "potholes_found": detections_found,
+                    "vehicles_found": total_vehicles_detected,
+                    "car_count": total_cars_detected,
+                    "motorcycle_count": total_motorcycles_detected,
+                    "bus_count": total_buses_detected,
+                    "truck_count": total_trucks_detected,
+                    "current_frame_vehicles": v_total,
+                    "current_frame_potholes": len(accepted_detections),
                     "events_created": events_created,
                     "events_updated": events_updated,
                     "status": "PROCESSING"
@@ -496,8 +595,9 @@ def process_uploaded_video(
     print("\n=======================================================")
     print(f" [Uploaded Video Sync] Processing Complete!")
     print(f" Frames Processed: {processed_frames}/{total_frames} ({avg_fps} FPS)")
-    print(f" Detections Found: {detections_found}")
-    print(f" Finalized Pothole Events: {len(finalized_events)} (Created: {events_created}, Updated: {events_updated})")
+    print(f" Potholes Found: {detections_found} | Finalized Pothole Events: {len(finalized_events)} (Created: {events_created}, Updated: {events_updated})")
+    print(f" Vehicles Detected: {total_vehicles_detected} (Cars: {total_cars_detected}, M/C: {total_motorcycles_detected}, Buses: {total_buses_detected}, Trucks: {total_trucks_detected})")
+    print(f" Vehicle Observations Dispatched: {vehicle_observations_dispatched}")
     print(f" Time Elapsed: {total_processing_time}s")
     print("=======================================================\n")
 
@@ -511,6 +611,11 @@ def process_uploaded_video(
             "total_frames": total_frames,
             "elapsed_video_sec": total_processing_time,
             "potholes_found": detections_found,
+            "vehicles_found": total_vehicles_detected,
+            "car_count": total_cars_detected,
+            "motorcycle_count": total_motorcycles_detected,
+            "bus_count": total_buses_detected,
+            "truck_count": total_trucks_detected,
             "events_created": events_created,
             "events_updated": events_updated,
             "average_fps": avg_fps,
@@ -535,6 +640,15 @@ def process_uploaded_video(
         "events_created": events_created,
         "events_updated": events_updated,
         "finalized_events": finalized_events,
+        "total_vehicles_detected": total_vehicles_detected,
+        "vehicle_breakdown": {
+            "car": total_cars_detected,
+            "motorcycle": total_motorcycles_detected,
+            "bus": total_buses_detected,
+            "truck": total_trucks_detected,
+            "total": total_vehicles_detected
+        },
+        "vehicle_observations_dispatched": vehicle_observations_dispatched,
         "processing_time_seconds": total_processing_time,
         "average_fps": avg_fps
     }

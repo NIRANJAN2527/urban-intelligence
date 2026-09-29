@@ -1,57 +1,96 @@
 -- ==============================================================================
--- DRISHTIYANA - Supabase PostgreSQL Schema
--- Tables: bus_sessions and gps_locations
--- Supports: LIVE Mode and UPLOAD Mode
+-- DRISHTIYANA - Supabase Permanent Database Schema
+-- Tables: events, work_orders, pothole_events, department_reports, bus_sessions, gps_locations
+-- Compatible with: LIVE Mode, UPLOAD Mode, and Admin Command Center
 -- ==============================================================================
 
--- 1. Table: bus_sessions
--- Tracks each bus sensing run (Live or Uploaded File)
-CREATE TABLE IF NOT EXISTS bus_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id TEXT UNIQUE NOT NULL,
+-- 1. Table: events (PRIMARY PERMANENT EVENT STORAGE TABLE)
+-- Stores all finalized detection events from DrishtiYana sensing network
+CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    event_id TEXT UNIQUE NOT NULL,
+    event_type TEXT DEFAULT 'POTHOLE',
+    category TEXT DEFAULT 'Road & Infrastructure',
+    confidence DOUBLE PRECISION NOT NULL,
     bus_id TEXT NOT NULL,
-    source_type TEXT DEFAULT 'LIVE', -- 'LIVE' or 'UPLOAD'
-    video_filename TEXT,
-    video_started_at TIMESTAMPTZ,
-    session_started_at TIMESTAMPTZ DEFAULT NOW(),
-    session_ended_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    priority TEXT DEFAULT 'MEDIUM',
+    risk_score INTEGER DEFAULT 50,
+    department TEXT DEFAULT 'ROAD MAINTENANCE',
+    status TEXT DEFAULT 'PENDING', -- PENDING -> SENT -> SOLVED
+    evidence_image TEXT,
+    evidence_reference TEXT,
+    evidence_image_url TEXT,
+    candidate_id TEXT,
+    observation_count INTEGER DEFAULT 1,
+    risk_level TEXT DEFAULT 'MEDIUM',
+    session_id TEXT,
+    camera_id TEXT DEFAULT 'CAM-01',
+    frame_id INTEGER,
+    video_timestamp TIMESTAMPTZ,
+    processing_timestamp TIMESTAMPTZ DEFAULT NOW(),
+    class_name TEXT DEFAULT 'Pothole',
+    bbox_x1 INTEGER,
+    bbox_y1 INTEGER,
+    bbox_x2 INTEGER,
+    bbox_y2 INTEGER,
+    gps_timestamp TIMESTAMPTZ,
+    gps_accuracy DOUBLE PRECISION,
+    timestamp_difference_ms INTEGER,
+    gps_match_status TEXT,
+    report_status TEXT DEFAULT 'PENDING', -- PENDING, SENT
+    report_id TEXT,
+    work_order_id TEXT,
+    video_source TEXT,
+    source_type TEXT DEFAULT 'LIVE',
+    verification_status TEXT DEFAULT 'ACCEPTED',
+    verification_method TEXT DEFAULT 'AUTO_ACCEPTED',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Indexes for session queries
-CREATE INDEX IF NOT EXISTS idx_bus_sessions_session_id ON bus_sessions(session_id);
-CREATE INDEX IF NOT EXISTS idx_bus_sessions_bus_id ON bus_sessions(bus_id);
-CREATE INDEX IF NOT EXISTS idx_bus_sessions_source_type ON bus_sessions(source_type);
+CREATE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id);
+CREATE INDEX IF NOT EXISTS idx_events_category ON events(category);
+CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);
+CREATE INDEX IF NOT EXISTS idx_events_department ON events(department);
+CREATE INDEX IF NOT EXISTS idx_events_priority ON events(priority);
+CREATE INDEX IF NOT EXISTS idx_events_risk_level ON events(risk_level);
+CREATE INDEX IF NOT EXISTS idx_events_bus_id ON events(bus_id);
+CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 
--- 2. Table: gps_locations
--- Stores high-frequency GPS telemetry collected from mobile phone or uploaded files
-CREATE TABLE IF NOT EXISTS gps_locations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    bus_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    source_type TEXT DEFAULT 'LIVE', -- 'LIVE' or 'UPLOAD'
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    accuracy DOUBLE PRECISION,
-    speed DOUBLE PRECISION,
-    heading DOUBLE PRECISION,
-    gps_timestamp TIMESTAMPTZ NOT NULL,
-    server_received_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+-- 2. Table: work_orders (PERSISTENT WORK ORDERS PIPELINE)
+CREATE TABLE IF NOT EXISTS work_orders (
+    id TEXT PRIMARY KEY,
+    work_order_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL,
+    department TEXT NOT NULL,
+    category TEXT NOT NULL,
+    problem_type TEXT NOT NULL,
+    priority TEXT DEFAULT 'MEDIUM',
+    risk_level TEXT DEFAULT 'MEDIUM',
+    risk_score INTEGER DEFAULT 50,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    address TEXT,
+    evidence_image TEXT,
+    status TEXT DEFAULT 'SENT', -- PENDING, SENT, SOLVED
+    notes TEXT,
+    dispatched_by TEXT DEFAULT 'admin',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Indexes for rapid temporal and spatial correlation with video timestamps
-CREATE INDEX IF NOT EXISTS idx_gps_locations_session_id ON gps_locations(session_id);
-CREATE INDEX IF NOT EXISTS idx_gps_locations_bus_id ON gps_locations(bus_id);
-CREATE INDEX IF NOT EXISTS idx_gps_locations_gps_timestamp ON gps_locations(gps_timestamp);
-CREATE INDEX IF NOT EXISTS idx_gps_locations_source_type ON gps_locations(source_type);
+CREATE INDEX IF NOT EXISTS idx_work_orders_work_order_id ON work_orders(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_work_orders_event_id ON work_orders(event_id);
+CREATE INDEX IF NOT EXISTS idx_work_orders_department ON work_orders(department);
+CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);
 
--- ==============================================================================
--- 3. Table: pothole_events
--- Stores verified Edge AI pothole detections with correlated GPS & evidence image URL
--- ==============================================================================
+-- 3. Table: pothole_events (BACKWARD COMPATIBILITY WITH EXISTING PIPELINE)
 CREATE TABLE IF NOT EXISTS pothole_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     event_id TEXT UNIQUE NOT NULL,
     candidate_id TEXT,
     observation_count INTEGER DEFAULT 1,
@@ -77,40 +116,27 @@ CREATE TABLE IF NOT EXISTS pothole_events (
     timestamp_difference_ms INTEGER,
     gps_match_status TEXT,
     evidence_image_url TEXT,
-    status TEXT DEFAULT 'NEW',
+    status TEXT DEFAULT 'PENDING',
     category TEXT DEFAULT 'Road & Infrastructure',
     department TEXT DEFAULT 'ROAD MAINTENANCE',
-    report_status TEXT DEFAULT 'PENDING', -- 'PENDING', 'SENT', 'FAILED'
+    report_status TEXT DEFAULT 'PENDING',
     report_id TEXT,
-    verification_status TEXT DEFAULT 'PENDING_REVIEW', -- 'VERIFIED', 'PENDING_REVIEW', 'REJECTED'
-    verification_method TEXT DEFAULT 'HUMAN_REVIEW_REQUIRED', -- 'AUTO_VERIFIED', 'HUMAN_VERIFIED', 'HUMAN_REVIEW_REQUIRED', 'AUTO_REJECTED', 'HUMAN_REJECTED'
+    work_order_id TEXT,
+    verification_status TEXT DEFAULT 'ACCEPTED',
+    verification_method TEXT DEFAULT 'AUTO_ACCEPTED',
     is_active BOOLEAN DEFAULT TRUE,
-    verified_at TIMESTAMPTZ,
-    verified_by TEXT,
-    rejected_at TIMESTAMPTZ,
-    rejected_by TEXT,
-    rejection_reason TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_pothole_events_session ON pothole_events(session_id);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_bus ON pothole_events(bus_id);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_created ON pothole_events(created_at);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
+CREATE INDEX IF NOT EXISTS idx_pothole_events_event_id ON pothole_events(event_id);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
 CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_report_status ON pothole_events(report_status);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_verification_status ON pothole_events(verification_status);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_is_active ON pothole_events(is_active);
 
--- ==============================================================================
--- 4. Table: department_reports
--- Stores structured GIS incident reports dispatched to municipal departments
--- ==============================================================================
+-- 4. Table: department_reports (HISTORICAL DISPATCH LOG)
 CREATE TABLE IF NOT EXISTS department_reports (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     report_id TEXT UNIQUE NOT NULL,
     event_id TEXT NOT NULL,
     department TEXT NOT NULL,
@@ -123,36 +149,126 @@ CREATE TABLE IF NOT EXISTS department_reports (
     longitude DOUBLE PRECISION,
     address TEXT,
     evidence_image_url TEXT,
-    status TEXT DEFAULT 'SENT', -- 'SENT', 'PENDING', 'FAILED'
+    status TEXT DEFAULT 'SENT', -- SENT, PENDING, SOLVED
     report_payload JSONB,
     dispatched_by TEXT DEFAULT 'admin',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_department_reports_report_id ON department_reports(report_id);
+CREATE INDEX IF NOT EXISTS idx_department_reports_event_id ON department_reports(event_id);
+
+-- 5. Table: bus_sessions
+CREATE TABLE IF NOT EXISTS bus_sessions (
+    id TEXT PRIMARY KEY,
+    session_id TEXT UNIQUE NOT NULL,
+    bus_id TEXT NOT NULL,
+    source_type TEXT DEFAULT 'LIVE',
+    video_filename TEXT,
+    video_started_at TIMESTAMPTZ,
+    session_started_at TIMESTAMPTZ DEFAULT NOW(),
+    session_ended_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_department_reports_event_id ON department_reports(event_id);
-CREATE INDEX IF NOT EXISTS idx_department_reports_department ON department_reports(department);
-CREATE INDEX IF NOT EXISTS idx_department_reports_status ON department_reports(status);
+CREATE INDEX IF NOT EXISTS idx_bus_sessions_session_id ON bus_sessions(session_id);
+
+-- 6. Table: gps_locations
+CREATE TABLE IF NOT EXISTS gps_locations (
+    id TEXT PRIMARY KEY,
+    bus_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    source_type TEXT DEFAULT 'LIVE',
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    accuracy DOUBLE PRECISION,
+    speed DOUBLE PRECISION,
+    heading DOUBLE PRECISION,
+    gps_timestamp TIMESTAMPTZ NOT NULL,
+    server_received_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_gps_locations_session_id ON gps_locations(session_id);
 
 -- ==============================================================================
--- Migration statements if tables already exist:
+-- ROW LEVEL SECURITY (RLS) POLICIES FOR SUPABASE PUBLISHABLE / ANON KEY
+-- Ensures the Supabase publishable key (anon role) can INSERT, SELECT, and UPDATE
 -- ==============================================================================
-ALTER TABLE bus_sessions ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT 'LIVE';
-ALTER TABLE bus_sessions ADD COLUMN IF NOT EXISTS video_filename TEXT;
-ALTER TABLE gps_locations ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT 'LIVE';
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS candidate_id TEXT;
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS observation_count INTEGER DEFAULT 1;
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS risk_score INTEGER;
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS risk_level TEXT;
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS priority TEXT;
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'NEW';
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Road & Infrastructure';
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS department TEXT DEFAULT 'ROAD MAINTENANCE';
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS report_status TEXT DEFAULT 'PENDING';
-ALTER TABLE pothole_events ADD COLUMN IF NOT EXISTS report_id TEXT;
-CREATE INDEX IF NOT EXISTS idx_pothole_events_risk_level ON pothole_events(risk_level);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_priority ON pothole_events(priority);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_status ON pothole_events(status);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_category ON pothole_events(category);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_department ON pothole_events(department);
-CREATE INDEX IF NOT EXISTS idx_pothole_events_report_status ON pothole_events(report_status);
+
+-- 1. events
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on events" ON events;
+CREATE POLICY "Allow anon all on events" ON events
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+-- 2. work_orders
+ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on work_orders" ON work_orders;
+CREATE POLICY "Allow anon all on work_orders" ON work_orders
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+-- 3. pothole_events
+ALTER TABLE pothole_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on pothole_events" ON pothole_events;
+CREATE POLICY "Allow anon all on pothole_events" ON pothole_events
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+-- 4. department_reports
+ALTER TABLE department_reports ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on department_reports" ON department_reports;
+CREATE POLICY "Allow anon all on department_reports" ON department_reports
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+-- 5. bus_sessions
+ALTER TABLE bus_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on bus_sessions" ON bus_sessions;
+CREATE POLICY "Allow anon all on bus_sessions" ON bus_sessions
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+-- 7. Table: vehicle_observations (TRAFFIC DENSITY & VEHICLE INTELLIGENCE)
+CREATE TABLE IF NOT EXISTS vehicle_observations (
+    id TEXT PRIMARY KEY,
+    observation_id TEXT UNIQUE NOT NULL,
+    session_id TEXT,
+    bus_id TEXT,
+    camera_id TEXT DEFAULT 'CAM-01',
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    car_count INTEGER DEFAULT 0,
+    motorcycle_count INTEGER DEFAULT 0,
+    bus_count INTEGER DEFAULT 0,
+    truck_count INTEGER DEFAULT 0,
+    total_vehicles INTEGER DEFAULT 0,
+    detections JSONB,
+    source_type TEXT DEFAULT 'LIVE',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_obs_session_id ON vehicle_observations(session_id);
+CREATE INDEX IF NOT EXISTS idx_vehicle_obs_timestamp ON vehicle_observations(timestamp);
+CREATE INDEX IF NOT EXISTS idx_vehicle_obs_bus_id ON vehicle_observations(bus_id);
+
+-- 6. gps_locations
+ALTER TABLE gps_locations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on gps_locations" ON gps_locations;
+CREATE POLICY "Allow anon all on gps_locations" ON gps_locations
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+-- 7. vehicle_observations
+ALTER TABLE vehicle_observations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow anon all on vehicle_observations" ON vehicle_observations;
+CREATE POLICY "Allow anon all on vehicle_observations" ON vehicle_observations
+    FOR ALL TO anon, authenticated
+    USING (true) WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';
 

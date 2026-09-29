@@ -39,4 +39,9 @@ uploads/
 __pycache__/
 *.pyc
 urban-intelligence/
+server/data/
+**/server/data/
+**/public/assets/extracted_imgs/
+
+
 

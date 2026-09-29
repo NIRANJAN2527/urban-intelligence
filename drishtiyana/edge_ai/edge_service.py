@@ -28,6 +28,7 @@ from contextlib import asynccontextmanager
 
 from enhancement import enhance_frame
 from detector import PotholeDetector, POTHOLE_CONFIDENCE_THRESHOLD, DEFAULT_MODEL_PATH
+from vehicle_detector import VehicleDetector, DEFAULT_VEHICLE_MODEL_PATH, VEHICLE_CLASS_IDS, VEHICLE_CONFIDENCE_THRESHOLD
 from redis_tracker import RedisCandidateManager
 from gps_matcher import get_gps_for_video_timestamp, parse_timestamp_to_ms
 from risk_assessment import calculate_pothole_risk
@@ -36,9 +37,11 @@ from video_sync_processor import process_uploaded_video
 # Node.js backend endpoint for submitting finalized events
 NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "http://127.0.0.1:3000")
 
-# Global singleton instances
+# Global singleton instances (completely isolated and separate)
 detector: Optional[PotholeDetector] = None
+vehicle_detector: Optional[VehicleDetector] = None
 redis_tracker: Optional[RedisCandidateManager] = None
+
 
 # Asynchronous server dispatch queue & worker state
 dispatch_queue: queue.Queue = queue.Queue(maxsize=100)
@@ -199,17 +202,26 @@ def candidate_sweeper_worker():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global detector, redis_tracker, worker_running
+    global detector, vehicle_detector, redis_tracker, worker_running
     print("\n=======================================================")
     print("   DRISHTIYANA - Starting Edge AI Processing Service   ")
     print("=======================================================")
 
-    # 1. Initialize YOLO detector
+    # 1. Initialize YOLO pothole detector (existing model untouched)
     try:
         detector = PotholeDetector()
     except Exception as e:
         print(f"[Startup ERROR] Failed to load YOLO detector: {e}")
         detector = None
+
+    # 1b. Initialize YOLO vehicle detector (isolated and independent)
+    try:
+        vehicle_detector = VehicleDetector()
+        print(f"[VEHICLE MODEL INIT]\npath={vehicle_detector.model_path}\nloaded=true\nmodel_names_available={hasattr(vehicle_detector.model, 'names')}")
+    except Exception as e:
+        print(f"[Startup ERROR] Failed to load YOLO vehicle detector: {e}")
+        print(f"[VEHICLE MODEL INIT]\npath=UNKNOWN\nloaded=false\nmodel_names_available=false")
+        vehicle_detector = None
 
     # 2. Initialize Redis Candidate Manager
     try:
@@ -259,12 +271,17 @@ def health_check():
         "model_loaded": detector is not None and detector.model is not None,
         "model_path": detector.model_path if detector else DEFAULT_MODEL_PATH,
         "confidence_threshold": POTHOLE_CONFIDENCE_THRESHOLD,
+        "vehicle_detector_status": "ACTIVE" if vehicle_detector is not None and vehicle_detector.model is not None else "OFFLINE",
+        "vehicle_model_path": vehicle_detector.model_path if vehicle_detector else DEFAULT_VEHICLE_MODEL_PATH,
+        "vehicle_classes": VEHICLE_CLASS_IDS,
+        "vehicle_confidence_threshold": VEHICLE_CONFIDENCE_THRESHOLD,
         "redis_status": redis_tracker.get_redis_status() if redis_tracker else {"connected": False, "mode": "disconnected"},
         "active_candidates_count": active_count,
         "finalized_events_count": session_metrics["total_final_events_sent"],
         "server_status": server_connection_status,
         "metrics": session_metrics
     }
+
 
 
 @app.get("/api/edge/stats")
@@ -395,10 +412,70 @@ async def process_frame(
         except Exception as exp_err:
             print(f"[Candidate Finalization Error] {exp_err}")
 
-    # Encode preview for live dashboard
+    # Step 3b: Isolated & Independent Vehicle Detection & Counting
+    vehicle_result = None
+    v_counts = {"car": 0, "motorcycle": 0, "bus": 0, "truck": 0, "total": 0}
+    v_total = 0
+    v_detections = []
+    vehicle_gps_status = "NO_VEHICLES"
+
+    if vehicle_detector is not None and vehicle_detector.model is not None:
+        try:
+            vehicle_result = vehicle_detector.detect(img_bgr)
+            if vehicle_result:
+                v_counts = vehicle_result.get("counts", v_counts)
+                v_total = vehicle_result.get("total_vehicles", 0)
+                v_detections = vehicle_result.get("detections", [])
+
+                has_gps = bool(gps_match and gps_match.get("latitude") is not None and gps_match.get("longitude") is not None)
+                gps_str = "AVAILABLE" if has_gps else "UNAVAILABLE"
+
+                # Live vehicle detection log required by specification
+                print(f"[VEHICLE LIVE] frame={frame_id} vehicles={v_total} car={v_counts.get('car', 0)} motorcycle={v_counts.get('motorcycle', 0)} bus={v_counts.get('bus', 0)} truck={v_counts.get('truck', 0)} gps={gps_str}")
+
+                if v_total > 0:
+                    if has_gps:
+                        vehicle_gps_status = "GPS MATCHED (Dispatched to GIS)"
+                        obs_payload = {
+                            "session_id": session_id,
+                            "bus_id": bus_id,
+                            "camera_id": camera_id,
+                            "timestamp": processing_timestamp,
+                            "latitude": gps_match["latitude"],
+                            "longitude": gps_match["longitude"],
+                            "car_count": v_counts.get("car", 0),
+                            "motorcycle_count": v_counts.get("motorcycle", 0),
+                            "bus_count": v_counts.get("bus", 0),
+                            "truck_count": v_counts.get("truck", 0),
+                            "total_vehicles": v_total,
+                            "detections": v_detections,
+                            "source_type": "LIVE"
+                        }
+
+                        def _dispatch_vehicle_obs(payload):
+                            try:
+                                requests.post(f"{NODE_BACKEND_URL}/api/edge/vehicle-observations", json=payload, timeout=0.8)
+                            except Exception:
+                                pass
+
+                        threading.Thread(target=_dispatch_vehicle_obs, args=(obs_payload,), daemon=True).start()
+                    else:
+                        vehicle_gps_status = "Vehicle detected — GPS unavailable"
+        except Exception as v_err:
+            print(f"[Vehicle Live Error] Frame vehicle inference error: {v_err}")
+
+    # Generate combined visual overlay frame (Potholes + Vehicles + AI HUD)
     annotated_base64 = None
-    if len(accepted_detections) > 0 and annotated_frame is not None:
-        _, preview_buf = cv2.imencode(".jpg", annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    has_any_detections = (len(accepted_detections) > 0 or v_total > 0)
+    if has_any_detections:
+        combined_frame = VehicleDetector.draw_combined_detections(
+            image=img_bgr,
+            pothole_detections=accepted_detections,
+            vehicle_detections=v_detections,
+            vehicle_counts=v_counts,
+            draw_hud=True
+        )
+        _, preview_buf = cv2.imencode(".jpg", combined_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         annotated_base64 = base64.b64encode(preview_buf).decode("utf-8")
 
     active_count = 0
@@ -423,8 +500,13 @@ async def process_frame(
         "active_candidates_count": active_count,
         "finalized_events_count": session_metrics["total_final_events_sent"],
         "server_status": server_connection_status,
-        "redis_status": redis_tracker.get_redis_status()["mode"] if redis_tracker else "disconnected"
+        "redis_status": redis_tracker.get_redis_status()["mode"] if redis_tracker else "disconnected",
+        "vehicle_counts": v_counts,
+        "total_vehicles": v_total,
+        "vehicle_detections": v_detections,
+        "vehicle_gps_status": vehicle_gps_status
     }
+
 
 
 @app.post("/api/edge/process-video")
@@ -482,6 +564,7 @@ async def process_video_endpoint(
                 camera_id=camera_id,
                 video_source=video_source or os.path.basename(target_video_path),
                 detector=detector,
+                vehicle_detector=vehicle_detector,
                 redis_tracker=redis_tracker,
                 node_backend_url=NODE_BACKEND_URL,
                 dispatch_to_server=True,

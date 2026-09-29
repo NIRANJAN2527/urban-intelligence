@@ -318,7 +318,7 @@ function calculateHaversineDistanceKm(lat1, lon1, lat2, lon2) {
 // USER-FACING ROUTES
 // ==============================================================================
 app.get('/', (req, res) => {
-  res.redirect('/viewer');
+  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 app.get('/login', (req, res) => {
@@ -1512,7 +1512,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
 
         // Persist in Supabase
         if (supabase.isSupabaseConfigured()) {
-          await supabase.insertPotholeEvent(duplicateTarget);
+          await supabase.insertEvent(duplicateTarget);
         }
 
         // Update videoJobProgress counters
@@ -1575,8 +1575,13 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
     );
 
     const hasValidCoords = newLat !== null && newLon !== null && (newLat !== 0 || newLon !== 0);
+    const generatedEventId = event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const nowIso = new Date().toISOString();
+
     const eventRecord = {
-      event_id: event_id || `EVT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      id: generatedEventId,
+      event_id: generatedEventId,
+      event_type: req.body.event_type || 'POTHOLE',
       candidate_id: candidate_id || null,
       observation_count: observation_count ? parseInt(observation_count, 10) : 1,
       risk_score: parsedRiskScore,
@@ -1584,7 +1589,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       priority: parsedPriority,
       category: req.body.category || taxonomy.category,
       department: req.body.department || taxonomy.department,
-      status: 'ACCEPTED',
+      status: req.body.status || 'PENDING', // Requirement 32: PENDING -> SENT -> SOLVED
       report_status: req.body.report_status || 'PENDING',
       report_id: req.body.report_id || null,
       work_order_id: req.body.work_order_id || null,
@@ -1593,7 +1598,7 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       camera_id: camera_id || 'CAM-01',
       frame_id: frame_id ? parseInt(frame_id, 10) : null,
       video_timestamp: video_timestamp || null,
-      processing_timestamp: processing_timestamp || new Date().toISOString(),
+      processing_timestamp: processing_timestamp || nowIso,
       confidence: newConf,
       class_name: class_name || taxonomy.problem,
       bbox_x1: bbox_x1 ? parseInt(bbox_x1, 10) : null,
@@ -1609,14 +1614,18 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       video_source: req.body.video_source || req.body.video_filename || null,
       source_type: req.body.source_type || 'UPLOAD',
       evidence_image_url: evidenceImageUrl,
+      evidence_image: evidenceImageUrl,
+      evidence_reference: req.body.best_frame_path || null,
       verification_status: gateResult.verification_status || 'ACCEPTED',
       verification_method: gateResult.verification_method || 'AUTO_ACCEPTED',
       is_active: true,
-      verified_at: new Date().toISOString(),
+      verified_at: nowIso,
       verified_by: 'AUTO_ACCEPTED',
       rejected_at: null,
       rejected_by: null,
-      rejection_reason: null
+      rejection_reason: null,
+      created_at: nowIso,
+      updated_at: nowIso
     };
 
     // Cache in in-memory event store
@@ -1628,23 +1637,29 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       job.events_created = (job.events_created || 0) + 1;
     }
 
-    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% | Category: ${eventRecord.category} | Dept: ${eventRecord.department} | Risk: ${eventRecord.risk_level} (${eventRecord.risk_score}) | Priority: ${eventRecord.priority} (Observed: ${eventRecord.observation_count}x)`);
+    console.log(`\n[Edge AI Event] ${eventRecord.event_id} | ${eventRecord.class_name} ${(eventRecord.confidence * 100).toFixed(1)}% | Category: ${eventRecord.category} | Dept: ${eventRecord.department} | Status: ${eventRecord.status} | Risk: ${eventRecord.risk_level} (${eventRecord.risk_score}) | Priority: ${eventRecord.priority} (Observed: ${eventRecord.observation_count}x)`);
     console.log(`  Candidate: ${eventRecord.candidate_id || 'N/A'} | Frame: ${eventRecord.frame_id} | Video Time: ${eventRecord.video_timestamp}`);
     console.log(`  GPS: (${eventRecord.latitude}, ${eventRecord.longitude}) | Match: ${eventRecord.gps_match_status} (delta: ${eventRecord.timestamp_difference_ms} ms)`);
     if (evidenceImageUrl) {
       console.log(`  Evidence Image: ${evidenceImageUrl}`);
     }
 
-    // Persist to Supabase if configured
+    // Persist to Supabase if configured (single source of truth)
     let dbSaved = false;
+    let dbError = null;
+    let dbTable = null;
     if (supabase.isSupabaseConfigured()) {
-      const dbRes = await supabase.insertPotholeEvent(eventRecord);
-      dbSaved = dbRes.success;
+      const dbRes = await supabase.insertEvent(eventRecord);
+      dbSaved = dbRes.success === true && dbRes.dbSaved === true;
+      dbTable = dbRes.table || null;
       if (dbSaved) {
-        console.log(`[DB] Event saved: ${eventRecord.event_id}`);
+        console.log(`[Supabase DB] Event permanently persisted: ${eventRecord.event_id} (table: ${dbTable})`);
+      } else {
+        dbError = dbRes.error || 'Failed to insert event into Supabase';
+        console.error(`[Supabase DB] Event persistence FAILED: ${eventRecord.event_id} - ${dbError}`);
       }
     } else {
-      console.log(`[DB] Local memory relay (Supabase unconfigured): ${eventRecord.event_id}`);
+      console.log(`[DB Notice] Local memory relay (Supabase unconfigured): ${eventRecord.event_id}`);
     }
 
     // Broadcast event to connected laptop monitors and admin portals
@@ -1666,7 +1681,9 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
       verification_method: eventRecord.verification_method,
       is_active: eventRecord.is_active,
       dbSaved,
-      dbConfigured: supabase.isSupabaseConfigured()
+      dbConfigured: supabase.isSupabaseConfigured(),
+      dbError: dbError || undefined,
+      dbTable: dbTable || undefined
     });
   } catch (err) {
     console.error('[API ERROR] /api/edge/events:', err.message);
@@ -1675,8 +1692,85 @@ app.post('/api/edge/events', uploadEvidence.single('evidence_image'), async (req
 });
 
 // ==============================================================================
+// VEHICLE OBSERVATIONS & TRAFFIC INTELLIGENCE INGESTION ENDPOINT
+// ==============================================================================
+
+// POST /api/edge/vehicle-observations: Ingests real-time vehicle counts & GPS observation
+app.post('/api/edge/vehicle-observations', async (req, res) => {
+  try {
+    const {
+      observation_id,
+      session_id,
+      bus_id,
+      camera_id,
+      timestamp,
+      latitude,
+      longitude,
+      car_count,
+      motorcycle_count,
+      bus_count,
+      truck_count,
+      total_vehicles,
+      detections,
+      source_type
+    } = req.body;
+
+    if (latitude === undefined || longitude === undefined || isNaN(parseFloat(latitude)) || isNaN(parseFloat(longitude))) {
+      return res.status(400).json({ success: false, error: 'Valid latitude and longitude required for vehicle observation' });
+    }
+
+    const obsRecord = {
+      observation_id,
+      session_id: session_id || 'DEFAULT-SESSION',
+      bus_id: bus_id || 'BUS-101',
+      camera_id: camera_id || 'CAM-01',
+      timestamp: timestamp || new Date().toISOString(),
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      car_count: parseInt(car_count || 0, 10),
+      motorcycle_count: parseInt(motorcycle_count || 0, 10),
+      bus_count: parseInt(bus_count || 0, 10),
+      truck_count: parseInt(truck_count || 0, 10),
+      total_vehicles: parseInt(total_vehicles !== undefined ? total_vehicles : (parseInt(car_count || 0, 10) + parseInt(motorcycle_count || 0, 10) + parseInt(bus_count || 0, 10) + parseInt(truck_count || 0, 10)), 10),
+      detections: detections || [],
+      source_type: source_type || 'LIVE'
+    };
+
+    console.log(`[VEHICLE SERVER DEBUG]\nobservation_id=${obsRecord.observation_id || 'AUTO'}\ntotal_vehicles=${obsRecord.total_vehicles}\ncar_count=${obsRecord.car_count}\nmotorcycle_count=${obsRecord.motorcycle_count}\nbus_count=${obsRecord.bus_count}\ntruck_count=${obsRecord.truck_count}\nlatitude=${obsRecord.latitude}\nlongitude=${obsRecord.longitude}\nsource_type=${obsRecord.source_type}`);
+
+    const persistResult = await supabase.insertVehicleObservation(obsRecord);
+
+    // Broadcast live telemetry update to admin portal
+    io.emit('edge-vehicle-observation', persistResult.observation);
+
+    return res.status(201).json({
+      success: true,
+      observation_id: persistResult.observation.observation_id,
+      total_vehicles: persistResult.observation.total_vehicles,
+      source: persistResult.source
+    });
+  } catch (err) {
+    console.error('[API ERROR] /api/edge/vehicle-observations:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================================================================
 // ADMIN & COMMAND PORTAL APIS (SECURED)
 // ==============================================================================
+
+
+// GET /api/config/supabase: Exposes client-safe Supabase configuration for browser
+app.get('/api/config/supabase', (req, res) => {
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  return res.json({
+    success: true,
+    supabaseUrl: url,
+    supabaseKey: key,
+    configured: !!(url && key)
+  });
+});
 
 // GET /api/admin/config: Returns taxonomy definitions, thresholds and departments
 app.get('/api/admin/config', requireAdminAuth, (req, res) => {
@@ -1694,19 +1788,21 @@ app.get('/api/admin/config', requireAdminAuth, (req, res) => {
       'MUNICIPAL',
       'POLICE / EMERGENCY'
     ],
-    statuses: ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+    statuses: ['PENDING', 'SENT', 'SOLVED', 'NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'],
     report_statuses: ['PENDING', 'SENT', 'FAILED']
   });
 });
 
-// GET /api/admin/events: Retrieves real events with filters and search
+// GET /api/admin/events: Retrieves real events permanently from Supabase with filters and search
 app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
   try {
     const { category, problem, risk_level, priority, department, status, report_status, bus_id, search, limit, verification_status, include_inactive } = req.query;
 
     let allEvents = [];
+    let isFallback = false;
+
     if (supabase.isSupabaseConfigured()) {
-      const dbResult = await supabase.getPotholeEvents({
+      const dbResult = await supabase.getEvents({
         category,
         risk_level,
         priority,
@@ -1714,25 +1810,52 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         status,
         report_status,
         bus_id,
-        limit: limit ? parseInt(limit, 10) : 200
+        limit: limit ? parseInt(limit, 10) : 500
       });
       if (dbResult.success && Array.isArray(dbResult.data)) {
-        allEvents = dbResult.data;
+        allEvents = dbResult.data.map(e => ({
+          ...e,
+          is_persisted: !dbResult.isFallback && e._synced !== false,
+          sync_status: (!dbResult.isFallback && e._synced !== false) ? 'PERSISTED' : 'QUEUED_LOCAL'
+        }));
+        isFallback = !!dbResult.isFallback;
       }
+    } else {
+      isFallback = true;
+      const dbResult = await supabase.getEvents({
+        category,
+        risk_level,
+        priority,
+        department,
+        status,
+        report_status,
+        bus_id,
+        limit: limit ? parseInt(limit, 10) : 500
+      });
+      allEvents = (dbResult.data || []).map(e => ({
+        ...e,
+        is_persisted: false,
+        sync_status: 'QUEUED_LOCAL'
+      }));
     }
 
-    // Merge in-memory events if not already fetched from DB
-    const dbEventIds = new Set(allEvents.map(e => e.event_id));
+    // Merge in-memory / outbox events not yet present in primary DB dataset
+    // Strictly flagged as is_persisted: false so UI never treats them as permanently stored
+    const dbEventIds = new Set(allEvents.map(e => e.event_id || e.id));
     for (const [id, memEvt] of inMemoryEvents.entries()) {
-      if (!dbEventIds.has(id)) {
-        allEvents.push(memEvt);
+      if (!dbEventIds.has(id) && !dbEventIds.has(memEvt.event_id)) {
+        allEvents.push({
+          ...memEvt,
+          is_persisted: false,
+          sync_status: 'QUEUED_LOCAL'
+        });
       }
     }
 
-    // Sort descending by timestamp
+    // Sort descending by created_at / timestamp
     allEvents.sort((a, b) => {
-      const tA = new Date(a.created_at || a.video_timestamp || a.processing_timestamp || 0).getTime();
-      const tB = new Date(b.created_at || b.video_timestamp || b.processing_timestamp || 0).getTime();
+      const tA = new Date(a.created_at || a.timestamp || a.video_timestamp || a.processing_timestamp || 0).getTime();
+      const tB = new Date(b.created_at || b.timestamp || b.video_timestamp || b.processing_timestamp || 0).getTime();
       return tB - tA;
     });
 
@@ -1742,8 +1865,18 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
       const rawLat = (evt.latitude !== undefined && evt.latitude !== null && !isNaN(parseFloat(evt.latitude))) ? parseFloat(evt.latitude) : null;
       const rawLon = (evt.longitude !== undefined && evt.longitude !== null && !isNaN(parseFloat(evt.longitude))) ? parseFloat(evt.longitude) : null;
       const hasCoords = rawLat !== null && rawLon !== null && (rawLat !== 0 || rawLon !== 0);
+      const evidenceUrl = evt.evidence_image_url || evt.evidence_image || evt.image_url || null;
+
+      // Simple lifecycle: PENDING -> SENT -> SOLVED
+      let currentStatus = (evt.status || 'PENDING').toUpperCase();
+      if (['NEW', 'ACCEPTED'].includes(currentStatus)) currentStatus = 'PENDING';
+      else if (['ASSIGNED'].includes(currentStatus)) currentStatus = 'SENT';
+      else if (['RESOLVED', 'CLOSED'].includes(currentStatus)) currentStatus = 'SOLVED';
+
+      const isPersisted = evt.is_persisted !== false && evt._synced !== false;
 
       return {
+        id: evt.id || evt.event_id,
         event_id: evt.event_id,
         candidate_id: evt.candidate_id || null,
         observation_count: evt.observation_count || 1,
@@ -1753,7 +1886,7 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         problem: evt.class_name || evt.problem || tax.problem,
         class_name: evt.class_name || evt.problem || tax.problem,
         department: evt.department || tax.department,
-        status: evt.status || 'ACCEPTED',
+        status: currentStatus,
         report_status: evt.report_status || 'PENDING',
         report_id: evt.report_id || null,
         work_order_id: evt.work_order_id || null,
@@ -1766,17 +1899,19 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         gps_timestamp: evt.gps_timestamp || null,
         video_timestamp: evt.video_timestamp || null,
         processing_timestamp: evt.processing_timestamp || evt.created_at || new Date().toISOString(),
-        created_at: evt.created_at || evt.processing_timestamp || new Date().toISOString(),
+        created_at: evt.created_at || evt.timestamp || evt.processing_timestamp || new Date().toISOString(),
+        timestamp: evt.timestamp || evt.created_at || evt.processing_timestamp || new Date().toISOString(),
         frame_id: evt.frame_id !== undefined ? evt.frame_id : null,
         bus_id: evt.bus_id || 'BUS-101',
         camera_id: evt.camera_id || 'CAM-01',
         session_id: evt.session_id || 'UNKNOWN',
         gps_match_status: evt.gps_match_status || 'UNCHECKED',
         timestamp_difference_ms: evt.timestamp_difference_ms || null,
-        evidence_image_url: evt.evidence_image_url || null,
+        evidence_image: evidenceUrl,
+        evidence_image_url: evidenceUrl,
+        evidence_reference: evt.evidence_reference || null,
         video_source: evt.video_source || null,
         source_type: evt.source_type || 'LIVE',
-        // Acceptance status for pothole detections
         verification_status: evt.verification_status || (evt.status === 'REJECTED' ? 'REJECTED' : 'ACCEPTED'),
         verification_method: evt.verification_method || 'AUTO_ACCEPTED',
         is_active: evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true,
@@ -1784,7 +1919,9 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
         verified_by: evt.verified_by || null,
         rejected_at: evt.rejected_at || null,
         rejected_by: evt.rejected_by || null,
-        rejection_reason: evt.rejection_reason || null
+        rejection_reason: evt.rejection_reason || null,
+        is_persisted: isPersisted,
+        sync_status: isPersisted ? 'PERSISTED' : 'QUEUED_LOCAL'
       };
     });
 
@@ -1855,21 +1992,25 @@ app.get('/api/admin/events', requireAdminAuth, async (req, res) => {
   }
 });
 
-// GET /api/admin/stats: Real summary counts for Overview cards
+// GET /api/admin/stats: Real summary counts for Overview cards derived from Supabase
 app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
   try {
     let allEvents = [];
     if (supabase.isSupabaseConfigured()) {
-      const dbResult = await supabase.getPotholeEvents({ limit: 1000 });
+      const dbResult = await supabase.getEvents({ limit: 1000 });
       if (dbResult.success && Array.isArray(dbResult.data)) {
         allEvents = dbResult.data;
+        if (dbResult.isFallback) {
+          const dbEventIds = new Set(allEvents.map(e => e.event_id || e.id));
+          for (const [id, memEvt] of inMemoryEvents.entries()) {
+            if (!dbEventIds.has(id) && !dbEventIds.has(memEvt.event_id)) {
+              allEvents.push(memEvt);
+            }
+          }
+        }
       }
-    }
-    const dbEventIds = new Set(allEvents.map(e => e.event_id));
-    for (const [id, memEvt] of inMemoryEvents.entries()) {
-      if (!dbEventIds.has(id)) {
-        allEvents.push(memEvt);
-      }
+    } else {
+      allEvents = Array.from(inMemoryEvents.values());
     }
 
     // Admin Portal Requirement: Events without valid GPS and frame image must not appear in Admin Portal statistics
@@ -1885,26 +2026,40 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
     });
 
     const total = allEvents.length;
-    let newEvents = 0;
+    let pendingCount = 0;
+    let sentCount = 0;
+    let solvedCount = 0;
     let highPriority = 0;
     let criticalEvents = 0;
     let roadProblems = 0;
     let trafficProblems = 0;
     let safetyIncidents = 0;
     let reportsDispatched = 0;
-    let pendingReview = 0;
     let verifiedCount = 0;
     let rejectedCount = 0;
-    const byDepartment = {};
+
+    const byDepartment = {
+      'ROAD MAINTENANCE': { pending: 0, sent: 0, solved: 0, total: 0 },
+      'TRAFFIC MANAGEMENT': { pending: 0, sent: 0, solved: 0, total: 0 },
+      'PUBLIC SAFETY': { pending: 0, sent: 0, solved: 0, total: 0 }
+    };
     const byCategory = {};
 
     for (const evt of allEvents) {
       const tax = resolveEventTaxonomy(evt.class_name || evt.problem || 'Pothole');
       const cat = evt.category || tax.category;
-      const dept = evt.department || tax.department;
+      let dept = (evt.department || tax.department || 'ROAD MAINTENANCE').toUpperCase();
+      if (dept.includes('ROAD')) dept = 'ROAD MAINTENANCE';
+      else if (dept.includes('TRAFFIC')) dept = 'TRAFFIC MANAGEMENT';
+      else if (dept.includes('SAFETY') || dept.includes('POLICE') || dept.includes('EMERGENCY')) dept = 'PUBLIC SAFETY';
+
       const rLvl = (evt.risk_level || 'MEDIUM').toUpperCase();
       const prio = (evt.priority || 'MEDIUM').toUpperCase();
-      const stat = (evt.status || 'NEW').toUpperCase();
+      let stat = (evt.status || 'PENDING').toUpperCase();
+      if (['NEW', 'ACCEPTED'].includes(stat)) stat = 'PENDING';
+      else if (['ASSIGNED'].includes(stat)) stat = 'SENT';
+      else if (['RESOLVED', 'CLOSED'].includes(stat)) stat = 'SOLVED';
+
       const repStat = (evt.report_status || 'PENDING').toUpperCase();
       const vStat = (evt.verification_status || 'PENDING_REVIEW').toUpperCase();
       const isActive = evt.is_active !== undefined ? (evt.is_active === true || evt.is_active === 'true' || evt.is_active === 1) : true;
@@ -1913,36 +2068,60 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
       else if (vStat === 'REJECTED' || !isActive) rejectedCount++;
       else verifiedCount++;
 
-      if (stat === 'NEW' || stat === 'ACCEPTED') newEvents++;
+      if (stat === 'SOLVED') {
+        solvedCount++;
+      } else if (stat === 'SENT' || repStat === 'SENT') {
+        sentCount++;
+        reportsDispatched++;
+      } else {
+        pendingCount++;
+      }
+
       if (prio === 'HIGH') highPriority++;
       if (rLvl === 'CRITICAL') criticalEvents++;
-      if (repStat === 'SENT') reportsDispatched++;
 
-      if (cat.toLowerCase().includes('road')) roadProblems++;
+      if (cat.toLowerCase().includes('road') || cat.toLowerCase().includes('infra')) roadProblems++;
       else if (cat.toLowerCase().includes('traffic')) trafficProblems++;
       else if (cat.toLowerCase().includes('safety')) safetyIncidents++;
 
-      byDepartment[dept] = (byDepartment[dept] || 0) + 1;
+      if (!byDepartment[dept]) {
+        byDepartment[dept] = { pending: 0, sent: 0, solved: 0, total: 0 };
+      }
+      byDepartment[dept].total++;
+      if (stat === 'SOLVED') {
+        byDepartment[dept].solved++;
+      } else if (stat === 'SENT' || repStat === 'SENT') {
+        byDepartment[dept].sent++;
+      } else {
+        byDepartment[dept].pending++;
+      }
+
       byCategory[cat] = (byCategory[cat] || 0) + 1;
     }
+
+    const activeEvents = total - solvedCount;
 
     return res.json({
       success: true,
       stats: {
         total_events: total,
         total_detections: total,
+        active_events: activeEvents,
+        pending_events: pendingCount,
+        sent_events: sentCount,
+        solved_events: solvedCount,
+        reports_sent: reportsDispatched,
+        reports_dispatched: reportsDispatched,
         accepted: verifiedCount,
         verified: verifiedCount,
         pending_review: 0,
         rejected: rejectedCount,
-        reports_sent: reportsDispatched,
-        new_events: newEvents,
+        new_events: pendingCount,
         high_priority: highPriority,
         critical_events: criticalEvents,
         road_problems: roadProblems,
         traffic_problems: trafficProblems,
         safety_incidents: safetyIncidents,
-        reports_dispatched: reportsDispatched,
         by_department: byDepartment,
         by_category: byCategory
       }
@@ -1953,7 +2132,67 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
   }
 });
 
+// ==============================================================================
+// TRAFFIC DENSITY & VEHICLE INTELLIGENCE APIS (SECURED)
+// ==============================================================================
+
+// GET /api/admin/traffic-density: Retrieves aggregated spatial density grid for Leaflet heatmap
+app.get('/api/admin/traffic-density', requireAdminAuth, async (req, res) => {
+  try {
+    const { vehicle_type = 'all', window = '60m' } = req.query;
+
+    let timeWindowMinutes = 60;
+    if (window === '30m') timeWindowMinutes = 30;
+    else if (window === '1h' || window === '60m') timeWindowMinutes = 60;
+    else if (window === '6h') timeWindowMinutes = 360;
+    else if (window === '24h') timeWindowMinutes = 1440;
+    else if (window === 'all') timeWindowMinutes = null;
+
+    const densityData = await supabase.getTrafficDensityGrid(vehicle_type, timeWindowMinutes);
+
+    return res.json({
+      success: true,
+      points: densityData.points || [],
+      cells: densityData.cells || [],
+      maxCount: densityData.maxCount || 0,
+      totalVehicles: densityData.totalVehicles || 0,
+      breakdown: densityData.breakdown || { cars: 0, motorcycles: 0, buses: 0, trucks: 0, total: 0 },
+      totalObservations: densityData.totalObservations || 0,
+      vehicleType: vehicle_type,
+      timeWindowMinutes,
+      message: (densityData.points && densityData.points.length > 0) ? null : 'No vehicle density data available for this period.'
+    });
+  } catch (err) {
+    console.error('[API ERROR] /api/admin/traffic-density:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/traffic-density/summary: Returns compact summary counts of detected vehicles
+app.get('/api/admin/traffic-density/summary', requireAdminAuth, async (req, res) => {
+  try {
+    const { window = '60m' } = req.query;
+    let timeWindowMinutes = 60;
+    if (window === '30m') timeWindowMinutes = 30;
+    else if (window === '1h' || window === '60m') timeWindowMinutes = 60;
+    else if (window === '6h') timeWindowMinutes = 360;
+    else if (window === '24h') timeWindowMinutes = 1440;
+    else if (window === 'all') timeWindowMinutes = null;
+
+    const stats = await supabase.getVehicleSummaryStats(timeWindowMinutes);
+
+    return res.json({
+      success: true,
+      summary: stats
+    });
+  } catch (err) {
+    console.error('[API ERROR] /api/admin/traffic-density/summary:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/reverse-geocode: Cached reverse geocoding proxy
+
 app.get('/api/reverse-geocode', requireAdminAuth, async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
@@ -1966,17 +2205,20 @@ app.get('/api/reverse-geocode', requireAdminAuth, async (req, res) => {
   return res.json({ success: true, ...result });
 });
 
-// PATCH /api/admin/events/:eventId/status: Update event status
+// PATCH /api/admin/events/:eventId/status: Update event status and persist to Supabase
 app.patch('/api/admin/events/:eventId/status', requireAdminAuth, async (req, res) => {
   const { eventId } = req.params;
   const { status } = req.body;
 
-  const validStatuses = ['NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+  const validStatuses = ['PENDING', 'SENT', 'SOLVED', 'NEW', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
   if (!status || !validStatuses.includes(status.toUpperCase())) {
     return res.status(400).json({ success: false, error: `Invalid status. Allowed: ${validStatuses.join(', ')}` });
   }
 
-  const normalizedStatus = status.toUpperCase();
+  let normalizedStatus = status.toUpperCase();
+  if (['NEW', 'ACCEPTED', 'PENDING'].includes(normalizedStatus)) normalizedStatus = 'PENDING';
+  else if (['ASSIGNED', 'SENT'].includes(normalizedStatus)) normalizedStatus = 'SENT';
+  else if (['RESOLVED', 'CLOSED', 'SOLVED'].includes(normalizedStatus)) normalizedStatus = 'SOLVED';
 
   // Update in memory if present
   if (inMemoryEvents.has(eventId)) {
@@ -1985,7 +2227,7 @@ app.patch('/api/admin/events/:eventId/status', requireAdminAuth, async (req, res
     inMemoryEvents.set(eventId, mem);
   }
 
-  // Update in Supabase if configured
+  // Persist permanently in Supabase
   if (supabase.isSupabaseConfigured()) {
     await supabase.updateEventStatus(eventId, normalizedStatus);
   }
@@ -2171,24 +2413,30 @@ app.post('/api/admin/reports/send', requireAdminAuth, async (req, res) => {
     // Update in-memory event status & report reference
     event.report_status = 'SENT';
     event.report_id = report_id;
+    event.status = 'SENT'; // Transitions PENDING -> SENT
     inMemoryEvents.set(event.event_id, event);
     persistedReports.set(report_id, reportRecord);
 
-    // Persist to Supabase if configured
+    // Persist work order and event status to Supabase if configured
     let dbSaved = false;
     if (supabase.isSupabaseConfigured()) {
-      const saveRes = await supabase.saveDepartmentReport(reportRecord);
-      const updateRes = await supabase.updateEventReportStatus(event.event_id, 'SENT', report_id);
+      const saveRes = await supabase.saveWorkOrder(reportRecord);
+      const updateRes = await supabase.updateEventReportStatus(event.event_id, report_id, 'SENT');
+      await supabase.updateEventStatus(event.event_id, 'SENT');
       dbSaved = saveRes.success && updateRes.success;
     }
 
-    // Broadcast report event to connected monitors
+    // Broadcast report and status events to connected monitors
     io.emit('department-report-sent', {
       report_id,
       event_id: event.event_id,
       department,
       status: 'SENT',
       report: reportRecord
+    });
+    io.emit('event-status-updated', {
+      event_id: event.event_id,
+      status: 'SENT'
     });
 
     console.log(`[Department Report] Dispatched ${report_id} for ${event.event_id} -> ${department} (Addr: ${locationAddress})`);
@@ -2209,7 +2457,7 @@ app.post('/api/admin/reports/send', requireAdminAuth, async (req, res) => {
   }
 });
 
-// GET /api/admin/reports: List all dispatched department reports
+// GET /api/admin/reports: List all dispatched department reports (compatibility)
 app.get('/api/admin/reports', requireAdminAuth, async (req, res) => {
   try {
     const { department, status, limit } = req.query;
@@ -2237,6 +2485,126 @@ app.get('/api/admin/reports', requireAdminAuth, async (req, res) => {
     console.error('[Admin API Error] /api/admin/reports:', err.message);
     return res.status(500).json({ success: false, error: err.message, reports: [] });
   }
+});
+
+// GET /api/admin/workorders: List persistent work orders from Supabase
+app.get('/api/admin/workorders', requireAdminAuth, async (req, res) => {
+  try {
+    const { department, status } = req.query;
+    let workorders = [];
+
+    if (supabase.isSupabaseConfigured()) {
+      const dbRes = await supabase.getWorkOrders({ department, status });
+      if (dbRes.success && Array.isArray(dbRes.data)) {
+        workorders = dbRes.data;
+      }
+    }
+
+    // Merge in-memory dispatched reports if not present in DB
+    const dbOrderIds = new Set(workorders.map(w => w.work_order_id || w.report_id || w.id));
+    for (const [id, r] of persistedReports.entries()) {
+      if (!dbOrderIds.has(id)) {
+        workorders.push({
+          id: r.report_id,
+          work_order_id: r.report_id,
+          event_id: r.event_id,
+          department: r.department,
+          category: r.category,
+          problem_type: r.problem,
+          priority: r.priority,
+          risk_level: r.risk_level,
+          risk_score: r.risk_score,
+          status: r.status || 'SENT',
+          address: r.location_address,
+          evidence_image: r.evidence_image_url,
+          created_at: r.created_at
+        });
+      }
+    }
+
+    if (department && department !== 'all') {
+      workorders = workorders.filter(w => (w.department || '').toLowerCase().includes(department.toLowerCase()));
+    }
+    if (status && status !== 'all') {
+      workorders = workorders.filter(w => (w.status || '').toUpperCase() === status.toUpperCase());
+    }
+
+    workorders.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+    return res.json({
+      success: true,
+      count: workorders.length,
+      workorders
+    });
+  } catch (err) {
+    console.error('[Admin API Error] /api/admin/workorders:', err.message);
+    return res.status(500).json({ success: false, error: err.message, workorders: [] });
+  }
+});
+
+// PATCH /api/admin/workorders/:workOrderId/status: Update work order status and persist to Supabase
+app.patch('/api/admin/workorders/:workOrderId/status', requireAdminAuth, async (req, res) => {
+  try {
+    const { workOrderId } = req.params;
+    const { status } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, error: 'Status is required' });
+    }
+
+    let normalizedStatus = String(status).toUpperCase();
+    if (['RESOLVED', 'CLOSED'].includes(normalizedStatus)) normalizedStatus = 'SOLVED';
+    else if (['ASSIGNED'].includes(normalizedStatus)) normalizedStatus = 'SENT';
+
+    // Update in Supabase and persistent storage
+    if (supabase.isSupabaseConfigured()) {
+      await supabase.updateWorkOrderStatus(workOrderId, normalizedStatus);
+      const client = supabase.getSupabaseClient();
+      if (client) {
+        try {
+          const { data: woData } = await client.from('work_orders').select('event_id').eq('work_order_id', workOrderId).single();
+          if (woData && woData.event_id) {
+            await supabase.updateEventStatus(woData.event_id, normalizedStatus);
+            if (inMemoryEvents.has(woData.event_id)) {
+              const mem = inMemoryEvents.get(woData.event_id);
+              mem.status = normalizedStatus;
+              inMemoryEvents.set(woData.event_id, mem);
+            }
+            io.emit('event-status-updated', { event_id: woData.event_id, status: normalizedStatus });
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Update in persistedReports
+    if (persistedReports.has(workOrderId)) {
+      const r = persistedReports.get(workOrderId);
+      r.status = normalizedStatus;
+      persistedReports.set(workOrderId, r);
+      if (r.event_id && inMemoryEvents.has(r.event_id)) {
+        const mem = inMemoryEvents.get(r.event_id);
+        mem.status = normalizedStatus;
+        inMemoryEvents.set(r.event_id, mem);
+        io.emit('event-status-updated', { event_id: r.event_id, status: normalizedStatus });
+      }
+    }
+
+    io.emit('workorder-status-updated', { work_order_id: workOrderId, status: normalizedStatus });
+
+    return res.json({ success: true, work_order_id: workOrderId, status: normalizedStatus });
+  } catch (err) {
+    console.error('[Admin API Error] PATCH /api/admin/workorders/:workOrderId/status:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Alias routes for /api/admin/work-orders
+app.get('/api/admin/work-orders', requireAdminAuth, (req, res) => {
+  res.redirect(307, '/api/admin/workorders' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
+});
+app.patch('/api/admin/work-orders/:workOrderId/status', requireAdminAuth, (req, res) => {
+  // Delegate to workorders handler
+  req.url = `/api/admin/workorders/${req.params.workOrderId}/status`;
+  app._router.handle(req, res);
 });
 
 // ==============================================================================

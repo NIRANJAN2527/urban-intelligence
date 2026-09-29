@@ -164,7 +164,7 @@ async function runTests() {
     console.log('\n[TEST 8] Testing Edge AI event ingestion (/api/edge/events)...');
     const testEvtId = `EVT-REPORT-TEST-${Date.now()}`;
     const dummyJpegB64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
-    const edgePostData = `event_id=${testEvtId}&class_name=Pothole&confidence=0.92&risk_score=78&risk_level=HIGH&priority=HIGH&latitude=17.4399&longitude=78.4982&session_id=SESSION-SECURE-TEST&annotated_frame_base64=${encodeURIComponent(dummyJpegB64)}`;
+    const edgePostData = `event_id=${testEvtId}&class_name=Pothole&confidence=0.92&risk_score=78&risk_level=HIGH&priority=HIGH&latitude=17.4399&longitude=78.4982&session_id=SESSION-SECURE-TEST-${Date.now()}&annotated_frame_base64=${encodeURIComponent(dummyJpegB64)}`;
     const edgeRes = await request(`${baseUrl}/api/edge/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
