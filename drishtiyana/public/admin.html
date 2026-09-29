@@ -178,7 +178,7 @@
       <section class="overview-grid">
         
         <!-- Left: City Intelligence Map Module -->
-        <div class="map-surface">
+        <div class="map-surface admin-map-card">
           <!-- Structured Map Header: Clear visual hierarchy -->
           <div class="surface-header">
             <div class="surface-title-group">
@@ -269,6 +269,11 @@
                   <line x1="12" y1="22" x2="12" y2="18"/>
                 </svg>
               </button>
+              <button id="fullscreenAdminMapBtn" class="floating-tool-btn" type="button" title="Toggle Fullscreen Map" aria-label="Fullscreen">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+              </button>
               <button id="refreshEventsBtn" class="floating-tool-btn" type="button" title="Refresh live telemetry" aria-label="Refresh">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
@@ -321,117 +326,176 @@
         <div class="stream-surface">
           <div class="surface-header">
             <h3 class="surface-title">RECENT ACTIVITY</h3>
+            <span class="marker-count-pill" id="recentActivityCountBadge">Latest Events</span>
           </div>
           <div class="activity-list" id="liveEventFeed">
-            <!-- Dynamically populated minimal activity feed -->
+            <!-- Dynamically populated minimal activity feed (max 4-6 high signal items) -->
           </div>
           <div class="activity-empty" id="liveFeedEmptyState" style="display: none;">
             <p>No recent activity detected</p>
           </div>
+          <div class="stream-footer">
+            <button type="button" class="btn-view-all-events" id="btnViewAllEventsFeed">
+              VIEW ALL EVENTS &rarr;
+            </button>
+          </div>
         </div>
 
       </section>
 
-      <!-- 2D. CITY INTELLIGENCE INSIGHTS (Executive Domain Overview) -->
-      <section class="city-insights-section" aria-label="City Level Intelligence Insights">
-        <div class="insights-header">
-          <h3 class="insights-title">CITY INTELLIGENCE INSIGHTS</h3>
-          <span class="insights-subtitle">Executive summary across monitored urban sectors</span>
-        </div>
-
-        <div class="insights-grid">
-          <!-- Insight 1: Road Maintenance -->
-          <div class="insight-card" onclick="filterDepartmentFromView('road')">
-            <div class="insight-top">
-              <span class="insight-badge road">ROAD INTEGRITY</span>
-              <span class="insight-trend" id="insightRoadCount">Active</span>
+      <!-- 2D. OVERVIEW CATEGORY SUMMARY BLOCKS (EXECUTIVE DOMAIN OVERVIEW) -->
+      <section class="overview-category-summaries" aria-label="City Domain Summaries">
+        <!-- Summary Block 1: Road & Infrastructure -->
+        <div class="category-summary-card road">
+          <div class="cat-summary-header">
+            <div class="cat-summary-title-wrap">
+              <span class="cat-summary-badge road">ROAD &amp; INFRASTRUCTURE</span>
+              <span class="cat-summary-sub">Pavement &amp; Structural Network</span>
             </div>
-            <h4 class="insight-heading" id="insightRoadHeading">Pothole &amp; Surface Defects</h4>
-            <p class="insight-desc">Real-time pavement degradation detected by bus camera sensing. Automatically prioritized for public works repair.</p>
-            <div class="insight-action">
-              <span>View Road Incidents &rarr;</span>
+            <span class="cat-status-indicator live">
+              <span class="status-pulse-dot"></span>ACTIVE SENSING
+            </span>
+          </div>
+
+          <div class="cat-summary-metrics">
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummaryRoadObs">34</span>
+              <span class="cat-metric-lbl">Active Observations</span>
+            </div>
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummaryRoadPotholes">30</span>
+              <span class="cat-metric-lbl">Potholes Detected</span>
+            </div>
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummaryRoadCracks">3</span>
+              <span class="cat-metric-lbl">Structural Issues</span>
             </div>
           </div>
 
-          <!-- Insight 2: Traffic Mobility -->
-          <div class="insight-card" onclick="filterDepartmentFromView('traffic')">
-            <div class="insight-top">
-              <span class="insight-badge traffic">TRANSIT MOBILITY</span>
-              <span class="insight-trend" id="insightTrafficCount">Monitored</span>
-            </div>
-            <h4 class="insight-heading">Urban Corridor Movement</h4>
-            <p class="insight-desc">Multi-class vehicle tracking across arterial avenues. High concentration detected near major transit interchanges.</p>
-            <div class="insight-action">
-              <span>View Traffic Density &rarr;</span>
-            </div>
-          </div>
-
-          <!-- Insight 3: Public Safety -->
-          <div class="insight-card" onclick="filterDepartmentFromView('safety')">
-            <div class="insight-top">
-              <span class="insight-badge safety">PUBLIC SAFETY</span>
-              <span class="insight-trend" id="insightSafetyCount">Alert</span>
-            </div>
-            <h4 class="insight-heading">Hazards &amp; Vulnerable Zones</h4>
-            <p class="insight-desc">Waterlogging, median divider gaps, and pedestrian safety hazard anomalies flagged for municipal action teams.</p>
-            <div class="insight-action">
-              <span>View Safety Incidents &rarr;</span>
-            </div>
+          <div class="cat-summary-actions">
+            <button type="button" id="btnExploreRoadsSummary" class="btn-primary-action road" onclick="showView('roads');">
+              EXPLORE ROAD EVENTS &rarr;
+            </button>
           </div>
         </div>
 
-        <!-- Preserved Elements for Script Compatibility -->
-        <div style="display: none;" aria-hidden="true">
-          <div id="simpleEventCardsGrid"></div>
-          <span id="categorySectionTitle"></span>
-          <span id="categorySectionCount"></span>
-          <div id="cardsEmptyState"></div>
-          <button id="refreshDensityBtn" type="button"></button>
-          <span id="densityValTotal">0</span>
-          <span id="densityValCars">0</span>
-          <span id="densityValMotorcycles">0</span>
-          <span id="densityValBuses">0</span>
-          <span id="densityValTrucks">0</span>
-          <div id="eventsMapActions"></div>
-          <div id="trafficDensityToolbar"></div>
+        <!-- Summary Block 2: Traffic Intelligence -->
+        <div class="category-summary-card traffic">
+          <div class="cat-summary-header">
+            <div class="cat-summary-title-wrap">
+              <span class="cat-summary-badge traffic">TRAFFIC INTELLIGENCE</span>
+              <span class="cat-summary-sub">Multi-Class Fleet Mobility</span>
+            </div>
+            <span class="cat-status-indicator live">
+              <span class="status-pulse-dot"></span>MONITORED
+            </span>
+          </div>
+
+          <div class="cat-summary-metrics">
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummaryTrafficObs">26</span>
+              <span class="cat-metric-lbl">Vehicle Observations</span>
+            </div>
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummaryTrafficHighDensity">8</span>
+              <span class="cat-metric-lbl">High-Density Zones</span>
+            </div>
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummaryTrafficCongestion">3</span>
+              <span class="cat-metric-lbl">Congestion Areas</span>
+            </div>
+          </div>
+
+          <div class="cat-summary-actions">
+            <button type="button" id="btnExploreTrafficSummary" class="btn-primary-action traffic" onclick="showView('traffic');">
+              EXPLORE TRAFFIC &rarr;
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary Block 3: Public Safety -->
+        <div class="category-summary-card safety">
+          <div class="cat-summary-header">
+            <div class="cat-summary-title-wrap">
+              <span class="cat-summary-badge safety">PUBLIC SAFETY</span>
+              <span class="cat-summary-sub">Urban Hazards &amp; Vulnerabilities</span>
+            </div>
+            <span class="cat-status-indicator warning">
+              <span class="status-pulse-dot amber"></span>ALERT
+            </span>
+          </div>
+
+          <div class="cat-summary-metrics">
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummarySafetyAlerts">6</span>
+              <span class="cat-metric-lbl">Active Alerts</span>
+            </div>
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummarySafetyPriority">2</span>
+              <span class="cat-metric-lbl">High-Priority Zones</span>
+            </div>
+            <div class="cat-metric-item">
+              <span class="cat-metric-val" id="ovSummarySafetyResolved">4</span>
+              <span class="cat-metric-lbl">Resolved Hazards</span>
+            </div>
+          </div>
+
+          <div class="cat-summary-actions">
+            <button type="button" id="btnExploreSafetySummary" class="btn-primary-action safety" onclick="showView('safety');">
+              EXPLORE SAFETY &rarr;
+            </button>
+          </div>
         </div>
       </section>
 
-    </div>
-
-        <!-- Preserved Filter Inputs for Script Compatibility -->
-        <div style="display: none;" aria-hidden="true">
-          <input type="text" id="filterSearchInput" value="">
-          <select id="filterCategorySelect"><option value="all">all</option></select>
-          <select id="filterDepartmentSelect"><option value="all">all</option></select>
-          <select id="filterPrioritySelect"><option value="all">all</option></select>
-          <select id="filterRiskSelect"><option value="all">all</option></select>
-          <select id="filterStatusSelect"><option value="all">all</option></select>
-          <select id="filterReportStatusSelect"><option value="all">all</option></select>
-          <button id="clearFiltersBtn" type="button"></button>
-          <div id="verificationFilterGroup"></div>
-          <table id="adminEventsTable"><tbody id="eventsTableBody"></tbody></table>
-          <div id="tableEmptyState"></div>
-          <div id="deptCard-road"></div>
-          <div id="deptCard-traffic"></div>
-          <div id="deptCard-all"></div>
-          <span id="deptCountRoad">0</span>
-          <span id="deptCountTraffic">0</span>
-          <span id="deptCountAll">0</span>
-          <span id="selectedDeptHeading"></span>
-          <div id="deptStatusTabs">
-            <button data-sub="PENDING_REVIEW">Pending</button>
-            <button data-sub="VERIFIED">Verified</button>
-            <button data-sub="REPORTED">Reported</button>
-          </div>
-          <span>VIEW REPORT</span>
-          <span id="subCountAll">0</span>
-          <span id="subCountAccepted">0</span>
-          <span id="subCountReported">0</span>
-          <span id="subCountPending">0</span>
-          <span id="subCountVerified">0</span>
+      <!-- Preserved Elements for Script Compatibility -->
+      <div style="display: none;" aria-hidden="true">
+        <div id="simpleEventCardsGrid"></div>
+        <span id="categorySectionTitle"></span>
+        <span id="categorySectionCount"></span>
+        <div id="cardsEmptyState"></div>
+        <button id="refreshDensityBtn" type="button"></button>
+        <span id="densityValTotal">0</span>
+        <span id="densityValCars">0</span>
+        <span id="densityValMotorcycles">0</span>
+        <span id="densityValBuses">0</span>
+        <span id="densityValTrucks">0</span>
+        <div id="eventsMapActions"></div>
+        <div id="trafficDensityToolbar"></div>
+        <span id="insightRoadCount"></span>
+        <span id="insightTrafficCount"></span>
+        <span id="insightSafetyCount"></span>
+        <span id="insightRoadHeading"></span>
+        <input type="text" id="filterSearchInput" value="">
+        <select id="filterCategorySelect"><option value="all">all</option></select>
+        <select id="filterDepartmentSelect"><option value="all">all</option></select>
+        <select id="filterPrioritySelect"><option value="all">all</option></select>
+        <select id="filterRiskSelect"><option value="all">all</option></select>
+        <select id="filterStatusSelect"><option value="all">all</option></select>
+        <select id="filterReportStatusSelect"><option value="all">all</option></select>
+        <button id="clearFiltersBtn" type="button"></button>
+        <div id="verificationFilterGroup"></div>
+        <table id="adminEventsTable"><tbody id="eventsTableBody"></tbody></table>
+        <div id="tableEmptyState"></div>
+        <div id="deptCard-road"></div>
+        <div id="deptCard-traffic"></div>
+        <div id="deptCard-all"></div>
+        <span id="deptCountRoad">0</span>
+        <span id="deptCountTraffic">0</span>
+        <span id="deptCountAll">0</span>
+        <span id="selectedDeptHeading"></span>
+        <div id="deptStatusTabs">
+          <button data-sub="PENDING_REVIEW">Pending</button>
+          <button data-sub="VERIFIED">Verified</button>
+          <button data-sub="REPORTED">Reported</button>
         </div>
-      </section>
+        <span>VIEW REPORT</span>
+        <span id="subCountAll">0</span>
+        <span id="subCountAccepted">0</span>
+        <span id="subCountReported">0</span>
+        <span id="subCountPending">0</span>
+        <span id="subCountVerified">0</span>
+      </div>
 
     </div>
 
@@ -451,7 +515,12 @@
           <p class="domain-desc">Pavement surface integrity, structural degradation &amp; municipal road hazard monitoring</p>
         </div>
         <div class="domain-header-actions">
-          <button id="refreshRoadsBtn" class="btn-subtle" type="button">Refresh Road Telemetry</button>
+          <button id="refreshRoadsBtn" class="btn-secondary-action" type="button" title="Refresh road telemetry">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Refresh Road Telemetry</span>
+          </button>
         </div>
       </header>
 
@@ -518,10 +587,12 @@
           <div class="map-secondary-filter-bar">
             <div class="sub-segmented-tabs" id="roadDefectSubFilterGroup" role="tablist">
               <span class="sub-filter-label">DEFECT TYPE</span>
-              <button type="button" class="sub-tab-btn active" data-roadfilter="all">All Road Defects</button>
+              <button type="button" class="sub-tab-btn active" data-roadfilter="all">All Road Issues</button>
               <button type="button" class="sub-tab-btn" data-roadfilter="pothole">Potholes</button>
-              <button type="button" class="sub-tab-btn" data-roadfilter="crack">Surface Cracks</button>
+              <button type="button" class="sub-tab-btn" data-roadfilter="damage">Surface Damage</button>
+              <button type="button" class="sub-tab-btn" data-roadfilter="crack">Structural Cracks</button>
               <button type="button" class="sub-tab-btn" data-roadfilter="infra">Infrastructure</button>
+              <button type="button" class="sub-tab-btn" data-roadfilter="waterlogging">Waterlogging</button>
             </div>
             <span class="demo-data-badge" id="roadDataSourceBadge" style="display: none;">REAL DATA</span>
           </div>
@@ -541,6 +612,11 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"/>
                   <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
+                </svg>
+              </button>
+              <button id="fullscreenRoadMapBtn" class="floating-tool-btn" type="button" title="Toggle Fullscreen Map">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
                 </svg>
               </button>
               <button id="refreshRoadMapBtn" class="floating-tool-btn" type="button" title="Refresh road defect layer">
@@ -620,7 +696,12 @@
           <p class="domain-desc">Multi-class vehicle monitoring, arterial volume &amp; corridor congestion analytics</p>
         </div>
         <div class="domain-header-actions">
-          <button id="refreshTrafficBtn" class="btn-subtle" type="button">Refresh Telemetry</button>
+          <button id="refreshTrafficBtn" class="btn-secondary-action" type="button" title="Refresh vehicle observations">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Refresh Telemetry</span>
+          </button>
         </div>
       </header>
 
@@ -724,6 +805,11 @@
                   <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
                 </svg>
               </button>
+              <button id="fullscreenTrafficMapBtn" class="floating-tool-btn" type="button" title="Toggle Fullscreen Map">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+              </button>
               <button id="refreshTrafficMapBtn" class="floating-tool-btn" type="button" title="Refresh vehicle observations">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
@@ -794,7 +880,12 @@
           <p class="domain-desc">Urban flood risks, pedestrian vulnerabilities &amp; roadway danger tracking</p>
         </div>
         <div class="domain-header-actions">
-          <button id="refreshSafetyBtn" class="btn-subtle" type="button">Refresh Safety Telemetry</button>
+          <button id="refreshSafetyBtn" class="btn-secondary-action" type="button" title="Refresh safety alerts">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Refresh Safety Telemetry</span>
+          </button>
         </div>
       </header>
 
@@ -859,10 +950,12 @@
           <div class="map-secondary-filter-bar">
             <div class="sub-segmented-tabs" id="safetySubFilterGroup" role="tablist">
               <span class="sub-filter-label">HAZARD CLASS</span>
-              <button type="button" class="sub-tab-btn active" data-sfilter="all">All Safety Hazards</button>
-              <button type="button" class="sub-tab-btn" data-sfilter="water">Waterlogging</button>
+              <button type="button" class="sub-tab-btn active" data-sfilter="all">All Safety Events</button>
               <button type="button" class="sub-tab-btn" data-sfilter="pedestrian">Pedestrian Risk</button>
-              <button type="button" class="sub-tab-btn" data-sfilter="hazard">General Hazards</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="crossing">Unsafe Crossing</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="hazard">Road Hazard</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="danger">Dangerous Road Condition</button>
+              <button type="button" class="sub-tab-btn" data-sfilter="water">Waterlogging</button>
             </div>
             <span class="demo-data-badge" id="safetyDataSourceBadge" style="display: none;">REAL DATA</span>
           </div>
@@ -882,6 +975,11 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"/>
                   <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
+                </svg>
+              </button>
+              <button id="fullscreenSafetyMapBtn" class="floating-tool-btn" type="button" title="Toggle Fullscreen Map">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
                 </svg>
               </button>
               <button id="refreshSafetyMapBtn" class="floating-tool-btn" type="button" title="Refresh safety layer">
@@ -957,7 +1055,12 @@
           </div>
           <div class="view-header-actions">
             <span class="marker-count-pill" id="allEventsCountBadge">0 events</span>
-            <button id="refreshAllEventsBtn" class="btn-subtle" type="button">Refresh Data</button>
+            <button id="refreshAllEventsBtn" class="btn-secondary-action" type="button" title="Refresh event database">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+              <span>Refresh Data</span>
+            </button>
           </div>
         </div>
 
@@ -996,7 +1099,12 @@
           </div>
 
           <div class="filter-item filter-reset-item">
-            <button id="resetAllEventsFiltersBtn" class="btn-subtle" type="button">Reset Filters</button>
+            <button id="resetAllEventsFiltersBtn" class="btn-secondary-action" type="button" title="Clear search and category filters">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              <span>Reset Filters</span>
+            </button>
           </div>
         </div>
 
@@ -1029,13 +1137,13 @@
     <!-- VIEW: DEPARTMENTS BREAKDOWN VIEW (SEPARATE NAVIGATION)                          -->
     <!-- ============================================================================== -->
     <div id="view-departments" class="view-pane" style="display: none;">
-      <section class="section-surface">
+      <div class="department-header-band">
         <h2 class="view-heading">MUNICIPAL DEPARTMENTS</h2>
         <p class="view-subheading">Automatic event routing and workload distribution across city authorities.</p>
-        <div class="departments-layout" id="deptCardsContainer">
-          <!-- Dynamically populated -->
-        </div>
-      </section>
+      </div>
+      <div class="departments-layout" id="deptCardsContainer">
+        <!-- Dynamically populated -->
+      </div>
     </div>
 
     <!-- ============================================================================== -->
@@ -1073,20 +1181,19 @@
     <!-- VIEW: DATA-DRIVEN URBAN DEFECT ANALYTICS (REAL DATA DRIVEN DASHBOARD)          -->
     <!-- ============================================================================== -->
     <div id="view-analytics" class="view-pane" style="display: none;">
-      <section class="section-surface">
-        <div class="surface-header-bar">
-          <div>
-            <h2 class="view-heading">URBAN INTELLIGENCE ANALYTICS</h2>
-            <p class="view-subheading">Real-time defect distributions, incident timelines &amp; mobility trends derived from active telemetry.</p>
-          </div>
-          <!-- Time Range Filter -->
-          <div class="analytics-time-segmented" id="analyticsTimeSegmented">
-            <button type="button" class="btn-time-tab" data-time="today">Today</button>
-            <button type="button" class="btn-time-tab" data-time="7d">7 Days</button>
-            <button type="button" class="btn-time-tab" data-time="30d">30 Days</button>
-            <button type="button" class="btn-time-tab active" data-time="all">All Time</button>
-          </div>
+      <div class="analytics-header-band">
+        <div>
+          <h2 class="view-heading">URBAN INTELLIGENCE ANALYTICS</h2>
+          <p class="view-subheading">Real-time defect distributions, incident timelines &amp; mobility trends derived from active telemetry.</p>
         </div>
+        <!-- Time Range Filter -->
+        <div class="analytics-time-segmented" id="analyticsTimeSegmented">
+          <button type="button" class="btn-time-tab" data-time="today">Today</button>
+          <button type="button" class="btn-time-tab" data-time="7d">7 Days</button>
+          <button type="button" class="btn-time-tab" data-time="30d">30 Days</button>
+          <button type="button" class="btn-time-tab active" data-time="all">All Time</button>
+        </div>
+      </div>
 
         <!-- Analytics Top KPIs Row -->
         <div class="analytics-kpi-row">
@@ -1196,7 +1303,6 @@
 
         <!-- Hidden container for background stats compatibility -->
         <div style="display: none;" id="analyticsCardsContainer"></div>
-      </section>
     </div>
 
   </main>
@@ -1215,10 +1321,13 @@
     </div>
 
     <!-- Fallback badges for script compatibility -->
-    <div style="display: none;" aria-hidden="true">
+    <div style="display: none;" aria-hidden="true" class="admin-stats-grid admin-bottom-grid admin-history-card">
       <span id="detailVerificationBadge">ACCEPTED</span>
       <span id="detailStatusBadge">ACCEPTED</span>
-      <div id="detailPlaceholder"></div>
+      <div id="detailPlaceholder">
+        <h3>SELECT AN EVENT</h3>
+        <p>Click a map marker or history item to view event details.</p>
+      </div>
     </div>
 
     <!-- Drawer Content Scroll Area -->

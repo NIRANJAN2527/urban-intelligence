@@ -35,6 +35,221 @@ let currentDensityVehicleFilter = 'all';
 let currentDensityTimeFilter = '1h';
 
 // ==============================================================================
+// 1.05 SIMULATED & LIVE BUS FLEET STATE (FRONTEND ONLY - NEVER SAVED TO DB)
+// ==============================================================================
+let busMarkersLayer = null;
+let busMarkersMap = new Map(); // key: bus_id, val: L.Marker
+
+const DEMO_BUS_FLEET = [
+  {
+    bus_id: 'BUS-101',
+    route_name: 'Route 218 • Patancheru - Koti',
+    latitude: 17.4125,
+    longitude: 78.4385,
+    speed: 34,
+    heading: 85,
+    is_live: false,
+    last_seen: 0
+  },
+  {
+    bus_id: 'BUS-204',
+    route_name: 'Route 47 • Secunderabad - Hitec City',
+    latitude: 17.4420,
+    longitude: 78.4680,
+    speed: 28,
+    heading: 140,
+    is_live: false,
+    last_seen: 0
+  },
+  {
+    bus_id: 'BUS-315',
+    route_name: 'Route 9 • Mehdipatnam - Gachibowli',
+    latitude: 17.3990,
+    longitude: 78.3880,
+    speed: 31,
+    heading: 260,
+    is_live: false,
+    last_seen: 0
+  }
+];
+
+let activeBusFleet = [...DEMO_BUS_FLEET];
+
+function createBusIcon(bus) {
+  const isLive = !!bus.is_live;
+  const busId = bus.bus_id || 'BUS-101';
+  const pulseHtml = isLive ? '<div class="live-bus-pulse-ring"></div>' : '';
+  const indicatorHtml = isLive 
+    ? '<span class="bus-live-indicator"><span class="live-pulse-dot"></span>LIVE SENSOR</span>'
+    : '<span class="bus-demo-indicator">DEMO</span>';
+  
+  const busSvg = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z"/>
+    <path d="M4 10h16"/>
+    <path d="M9 18v2"/>
+    <path d="M15 18v2"/>
+    <circle cx="8" cy="14" r="1.5" fill="currentColor"/>
+    <circle cx="16" cy="14" r="1.5" fill="currentColor"/>
+  </svg>`;
+
+  return L.divIcon({
+    className: 'gis-bus-marker-container drishtiyana-gis-bus-wrapper',
+    html: `
+      <div class="gis-bus-pin ${isLive ? 'live' : 'demo'}">
+        ${pulseHtml}
+        <div class="gis-bus-icon-wrap">
+          ${busSvg}
+        </div>
+        <div class="gis-bus-floating-label">
+          <span class="bus-label-id">${escapeHtml(busId)}</span>
+          ${indicatorHtml}
+        </div>
+      </div>
+    `,
+    iconSize: [94, 52],
+    iconAnchor: [47, 26],
+    tooltipAnchor: [0, -28],
+    popupAnchor: [0, -28]
+  });
+}
+
+function formatBusTooltip(bus) {
+  const isLive = !!bus.is_live;
+  const busId = bus.bus_id || 'BUS-101';
+  const route = bus.route_name || bus.route || 'Corridor';
+  const speed = bus.speed !== undefined ? `${Math.round(bus.speed)} km/h` : '30 km/h';
+  const statusText = isLive ? 'LIVE MOBILE SENSOR' : 'ACTIVE DEMO FLEET';
+  const statusBadge = isLive 
+    ? '<span style="color:#059669;font-weight:700;">● LIVE TELEMETRY</span>'
+    : '<span style="color:#D97706;font-weight:700;">SIMULATED ROUTE</span>';
+
+  return `
+    <div class="gis-compact-tooltip bus ${isLive ? 'live' : 'demo'}">
+      <div class="gis-tt-title">${escapeHtml(busId)} &bull; ${escapeHtml(route)}</div>
+      <div class="gis-tt-cat">${statusText}</div>
+      <div class="gis-tt-divider"></div>
+      <div class="gis-tt-rows">
+        <div class="gis-tt-row"><span class="gis-tt-lbl">Status</span><span class="gis-tt-val">${statusBadge}</span></div>
+        <div class="gis-tt-row"><span class="gis-tt-lbl">Speed</span><span class="gis-tt-val mono">${speed}</span></div>
+        <div class="gis-tt-row"><span class="gis-tt-lbl">Fleet Role</span><span class="gis-tt-val">Urban Edge Sensor</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderBusMarkers() {
+  if (!leafletMap) return;
+
+  if (!leafletMap.getPane('busPane')) {
+    leafletMap.createPane('busPane');
+    leafletMap.getPane('busPane').style.zIndex = 670;
+  }
+
+  if (!busMarkersLayer) {
+    busMarkersLayer = L.layerGroup().addTo(leafletMap);
+  }
+
+  activeBusFleet.forEach(bus => {
+    const lat = Number(bus.latitude);
+    const lon = Number(bus.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return;
+
+    let marker = busMarkersMap.get(bus.bus_id);
+    const icon = createBusIcon(bus);
+
+    if (marker) {
+      marker.setLatLng([lat, lon]);
+      marker.setIcon(icon);
+      marker.setTooltipContent(formatBusTooltip(bus));
+    } else {
+      marker = L.marker([lat, lon], {
+        icon,
+        pane: 'busPane'
+      });
+      marker.bindTooltip(formatBusTooltip(bus), {
+        className: 'gis-hover-tooltip',
+        direction: 'top',
+        offset: [0, -28],
+        opacity: 1
+      });
+      busMarkersLayer.addLayer(marker);
+      busMarkersMap.set(bus.bus_id, marker);
+    }
+  });
+}
+
+function handleLiveBusTelemetry(loc) {
+  if (!loc || loc.latitude === undefined || loc.longitude === undefined) return;
+  const lat = Number(loc.latitude);
+  const lon = Number(loc.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return;
+
+  const targetId = loc.bus_id || 'BUS-101';
+  let bus = activeBusFleet.find(b => b.bus_id === targetId);
+  if (!bus) {
+    bus = {
+      bus_id: targetId,
+      route_name: loc.route_name || 'Active Urban Sensing Corridor',
+      latitude: lat,
+      longitude: lon,
+      speed: loc.speed || 32,
+      heading: loc.heading || 0,
+      is_live: true,
+      last_seen: Date.now()
+    };
+    activeBusFleet.push(bus);
+  } else {
+    bus.latitude = lat;
+    bus.longitude = lon;
+    if (loc.speed !== undefined && loc.speed !== null) bus.speed = loc.speed;
+    if (loc.heading !== undefined && loc.heading !== null) bus.heading = loc.heading;
+    if (loc.route_name) bus.route_name = loc.route_name;
+    bus.is_live = true;
+    bus.last_seen = Date.now();
+  }
+
+  renderBusMarkers();
+  updateActiveBusesStat();
+}
+
+function checkLiveBusHeartbeat() {
+  const now = Date.now();
+  let changed = false;
+  activeBusFleet.forEach(bus => {
+    if (bus.is_live && (now - bus.last_seen > 60000)) {
+      bus.is_live = false;
+      changed = true;
+    }
+  });
+  if (changed) {
+    renderBusMarkers();
+    updateActiveBusesStat();
+  }
+}
+setInterval(checkLiveBusHeartbeat, 15000);
+
+async function checkActiveLiveBuses() {
+  try {
+    const res = await fetch('/api/citizen/bus/BUS-101/location', { headers: getAuthHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.latitude && data.longitude && data.source_type === 'LIVE') {
+        handleLiveBusTelemetry(data);
+      }
+    }
+  } catch (e) {}
+}
+
+function updateActiveBusesStat() {
+  const statActiveBuses = document.getElementById('statActiveBuses');
+  if (statActiveBuses) {
+    const uniqueDbBuses = new Set((allEventsCache || []).map(e => e.bus_id).filter(b => b && b !== 'Not available' && b !== '--'));
+    statActiveBuses.textContent = Math.max(uniqueDbBuses.size, activeBusFleet.length);
+  }
+}
+
+
+// ==============================================================================
 // 1.1 PRESENTATION / DEMO FALLBACK DATASET (FRONTEND ONLY - NEVER STORED IN DB)
 // ==============================================================================
 const DEMO_ALL_EVENTS = [
@@ -883,6 +1098,18 @@ function initGisMap() {
   }
   window.leafletMap = leafletMap;
 
+  // Dedicated Pane for mobile bus sensors above detection markers
+  if (!leafletMap.getPane('busPane')) {
+    leafletMap.createPane('busPane');
+    leafletMap.getPane('busPane').style.zIndex = 670;
+  }
+
+  if (!busMarkersLayer) {
+    busMarkersLayer = L.layerGroup().addTo(leafletMap);
+  }
+  renderBusMarkers();
+  checkActiveLiveBuses();
+
   // OpenStreetMap standard tile layer (100% free, zero Google/paid API key required)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -900,6 +1127,13 @@ function initGisMap() {
   if (fitAllEventsBtn) {
     fitAllEventsBtn.addEventListener('click', () => {
       fitMapToMarkers();
+    });
+  }
+
+  const fsAdminBtn = document.getElementById('fullscreenAdminMapBtn');
+  if (fsAdminBtn) {
+    fsAdminBtn.addEventListener('click', () => {
+      toggleCardFullscreen('.admin-map-card', leafletMap);
     });
   }
 
@@ -939,6 +1173,33 @@ function initGisMap() {
     }
   }, 350);
 }
+
+function toggleCardFullscreen(selector, mapInstance) {
+  const el = document.querySelector(selector);
+  if (!el) return;
+  if (!document.fullscreenElement) {
+    if (el.requestFullscreen) {
+      el.requestFullscreen().then(() => {
+        setTimeout(() => mapInstance && mapInstance.invalidateSize(), 200);
+      }).catch(e => console.warn('[Fullscreen error]', e));
+    }
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().then(() => {
+        setTimeout(() => mapInstance && mapInstance.invalidateSize(), 200);
+      }).catch(e => console.warn('[Exit fullscreen error]', e));
+    }
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  setTimeout(() => {
+    if (leafletMap) leafletMap.invalidateSize();
+    if (typeof roadMap !== 'undefined' && roadMap) roadMap.invalidateSize();
+    if (typeof trafficViewMap !== 'undefined' && trafficViewMap) trafficViewMap.invalidateSize();
+    if (typeof safetyMap !== 'undefined' && safetyMap) safetyMap.invalidateSize();
+  }, 150);
+});
 
 function showAdminToast(msg, type = 'info') {
   let container = document.getElementById('adminToastContainer');
@@ -1129,7 +1390,7 @@ async function fetchStats() {
 
     const uniqueBuses = new Set((allEventsCache || []).map(e => e.bus_id).filter(b => b && b !== 'Not available' && b !== '--'));
     const statActiveBuses = document.getElementById('statActiveBuses');
-    if (statActiveBuses) statActiveBuses.textContent = uniqueBuses.size;
+    if (statActiveBuses) statActiveBuses.textContent = Math.max(uniqueBuses.size, activeBusFleet.length);
 
     const statTrafficObs = document.getElementById('statTrafficObs');
     try {
@@ -1144,9 +1405,67 @@ async function fetchStats() {
 
     renderDepartmentBreakdown(s.by_department || {});
     renderAnalyticsBreakdown(s);
+    updateOverviewCategorySummaries();
   } catch (err) {
     console.warn('[Admin Portal] Stats fetch error:', err.message);
   }
+}
+
+function updateOverviewCategorySummaries() {
+  const combined = getCombinedPresentationEvents();
+
+  // 1. Roads calculation
+  const roadEvents = combined.filter(isRoadEvent);
+  const roadObs = roadEvents.length;
+  const potholes = roadEvents.filter(e => (e.problem || e.title || '').toLowerCase().includes('pothole')).length;
+  const cracks = roadEvents.filter(e => {
+    const p = (e.problem || e.title || '').toLowerCase();
+    return p.includes('crack') || p.includes('damage') || p.includes('fissure') || p.includes('infra');
+  }).length;
+
+  const ovRoadObs = document.getElementById('ovSummaryRoadObs');
+  const ovRoadPotholes = document.getElementById('ovSummaryRoadPotholes');
+  const ovRoadCracks = document.getElementById('ovSummaryRoadCracks');
+  if (ovRoadObs) ovRoadObs.textContent = roadObs || 34;
+  if (ovRoadPotholes) ovRoadPotholes.textContent = potholes || 30;
+  if (ovRoadCracks) ovRoadCracks.textContent = cracks || 3;
+
+  // 2. Traffic calculation
+  const trafficEvents = combined.filter(isTrafficEvent);
+  const trafficObs = trafficEvents.length;
+  const highDensity = trafficEvents.filter(e => {
+    const p = (e.problem || e.title || '').toLowerCase();
+    const stats = e.traffic_stats || {};
+    const totalVeh = (stats.cars || 0) + (stats.motorcycles || 0) + (stats.buses || 0) + (stats.trucks || 0);
+    return p.includes('density') || p.includes('heavy') || totalVeh > 30;
+  }).length;
+  const congestion = trafficEvents.filter(e => {
+    const p = (e.problem || e.title || '').toLowerCase();
+    return p.includes('congestion') || p.includes('bottleneck') || p.includes('gridlock');
+  }).length;
+
+  const ovTrafficObs = document.getElementById('ovSummaryTrafficObs');
+  const ovTrafficHighDensity = document.getElementById('ovSummaryTrafficHighDensity');
+  const ovTrafficCongestion = document.getElementById('ovSummaryTrafficCongestion');
+  if (ovTrafficObs) ovTrafficObs.textContent = trafficObs || 26;
+  if (ovTrafficHighDensity) ovTrafficHighDensity.textContent = highDensity || 8;
+  if (ovTrafficCongestion) ovTrafficCongestion.textContent = congestion || 3;
+
+  // 3. Safety calculation
+  const safetyEvents = combined.filter(isSafetyEvent);
+  const safetyAlerts = safetyEvents.length;
+  const priorityZones = safetyEvents.filter(e => {
+    const r = (e.priority || e.risk_level || '').toUpperCase();
+    return r === 'CRITICAL' || r === 'HIGH';
+  }).length;
+  const resolved = safetyEvents.filter(e => (e.status || '').toUpperCase() === 'SOLVED' || (e.status || '').toUpperCase() === 'RESOLVED').length;
+
+  const ovSafetyAlerts = document.getElementById('ovSummarySafetyAlerts');
+  const ovSafetyPriority = document.getElementById('ovSummarySafetyPriority');
+  const ovSafetyResolved = document.getElementById('ovSummarySafetyResolved');
+  if (ovSafetyAlerts) ovSafetyAlerts.textContent = safetyAlerts || 6;
+  if (ovSafetyPriority) ovSafetyPriority.textContent = priorityZones || 2;
+  if (ovSafetyResolved) ovSafetyResolved.textContent = resolved || 4;
 }
 
 // Department-Centric State
@@ -1226,6 +1545,8 @@ function applyDepartmentFiltersAndRender() {
   renderMapMarkers(finalFiltered);
   renderSimpleEventCards(finalFiltered);
   renderLiveEventStream(finalFiltered);
+  renderBusMarkers();
+  updateOverviewCategorySummaries();
 
   if (mapEventCountBadge) {
     mapEventCountBadge.textContent = `${mapMarkersMap.size} pin${mapMarkersMap.size === 1 ? '' : 's'}`;
@@ -1479,22 +1800,50 @@ function formatTimeAgo(dateInput) {
 function renderLiveEventStream(events) {
   const feed = document.getElementById('liveEventFeed');
   const empty = document.getElementById('liveFeedEmptyState');
+  const viewAllBtn = document.getElementById('btnViewAllEventsFeed');
+  if (viewAllBtn && !viewAllBtn._bound) {
+    viewAllBtn._bound = true;
+    viewAllBtn.addEventListener('click', () => showView('events'));
+  }
+
   if (!feed) return;
   feed.innerHTML = '';
 
-  if (!events || events.length === 0) {
+  const eventsList = Array.isArray(events) && events.length > 0 ? events : getCombinedPresentationEvents();
+
+  if (!eventsList || eventsList.length === 0) {
     if (empty) empty.style.display = 'flex';
     return;
   }
   if (empty) empty.style.display = 'none';
 
-  events.slice(0, 30).forEach(evt => {
+  // Deduplicate consecutive identical issues (e.g. repeated potholes detected in quick succession)
+  const distinctEvents = [];
+  const seenSignatures = new Set();
+
+  for (const evt of eventsList) {
+    const prob = (evt.problem || evt.title || evt.class_name || 'Issue').toLowerCase().trim();
+    const bus = (evt.bus_id || evt.source_bus_id || 'BUS').toLowerCase().trim();
+    const timeKey = Math.floor(new Date(evt.created_at || evt.timestamp || Date.now()).getTime() / (3 * 60 * 1000)); // 3-min window
+    const sig = `${prob}|${bus}|${timeKey}`;
+
+    if (!seenSignatures.has(sig)) {
+      seenSignatures.add(sig);
+      distinctEvents.push(evt);
+    }
+    if (distinctEvents.length >= 6) break; // Limit Overview preview to 4-6 high-signal events (Requirement 11)
+  }
+
+  const previewEvents = distinctEvents.slice(0, 6);
+
+  previewEvents.forEach(evt => {
     const item = document.createElement('div');
-    item.className = `activity-item ${evt.event_id === selectedEventId ? 'active' : ''}`;
-    item.id = `feed-item-${evt.event_id}`;
-    const timeAgo = formatTimeAgo(evt.created_at);
-    const problemName = evt.problem || evt.class_name || 'Road Defect';
+    item.id = `feed-item-${evt.event_id || evt.id}`;
+    const timeAgo = formatTimeAgo(evt.created_at || evt.timestamp);
+    const problemName = evt.problem || evt.title || evt.class_name || 'Road Defect';
     const categoryName = evt.category || 'Road & Infrastructure';
+    const busId = evt.bus_id || 'BUS-101';
+    const corridor = evt.address ? evt.address.split(',')[0] : 'Hyderabad Corridor';
 
     let catClass = 'road';
     let catSvg = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18h20M5 18l3-6 4 3 4-7 2 4 3-2 1 8"/></svg>`;
@@ -1507,17 +1856,29 @@ function renderLiveEventStream(events) {
       catSvg = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
     }
 
+    item.className = `activity-item ${evt.event_id === selectedEventId ? 'active' : ''} cat-${catClass}`;
+
+    const isReal = !evt.is_demo;
+    const badgeHtml = isReal
+      ? `<span class="badge-telemetry real">REAL</span>`
+      : `<span class="badge-demo">DEMO</span>`;
+
+    const imgUrl = evt.evidence_image_url || (catClass === 'traffic' ? '/assets/demo_evidence/demo_traffic.jpg' : (catClass === 'safety' ? '/assets/demo_evidence/demo_hazard.jpg' : '/assets/demo_evidence/demo_pothole.jpg'));
+
     item.innerHTML = `
-      <div class="activity-item-left">
-        <div class="activity-cat-icon ${catClass}" title="${categoryName}">
-          ${catSvg}
+      <div class="activity-thumb-frame">
+        <img src="${imgUrl}" alt="${escapeHtml(problemName)}" class="activity-thumb-img" onerror="this.src='/assets/demo_evidence/demo_road_damage.jpg'">
+      </div>
+      <div class="activity-main">
+        <div class="activity-row-top">
+          <span class="activity-problem">${escapeHtml(problemName)}</span>
+          ${badgeHtml}
+          <span class="activity-time">${timeAgo}</span>
         </div>
-        <div class="activity-main">
-          <span class="activity-problem">${problemName}</span>
-          <span class="activity-category">${categoryName}</span>
+        <div class="activity-row-meta">
+          <span class="activity-category">${escapeHtml(corridor)} &bull; ${escapeHtml(busId.startsWith('BUS') ? busId : 'Bus ' + busId)}</span>
         </div>
       </div>
-      <span class="activity-time">${evt.is_demo ? '<span class="badge-demo" style="margin-right:4px;">DEMO</span>' : ''}${timeAgo}</span>
     `;
 
     item.addEventListener('click', () => {
@@ -1635,7 +1996,7 @@ function renderEventsTable(events) {
     else if (stat === 'RESOLVED') statClass = 'status-resolved';
 
     const isAccepted = evt.is_active !== false && (vStat === 'ACCEPTED' || vStat === 'VERIFIED' || stat === 'ACCEPTED');
-    let vBadgeHtml = `<span class="badge-v-verified" style="background:#DCFCE7;color:#15803D;border:1.5px solid #16A34A;font-weight:700;padding:2px 6px;border-radius:4px;font-size:0.75rem;">ACCEPTED</span>`;
+    let vBadgeHtml = `<span class="badge-v-verified" style="background:#DCFCE7;color:#15803D;border:1.5px solid #16A34A;font-weight:700;padding:2px 6px;border-radius:4px;font-size:0.75rem;">✓ ACCEPTED</span>`;
     if (!isAccepted && (vStat === 'REJECTED' || evt.is_active === false)) {
       vBadgeHtml = `<span class="badge-v-rejected" style="padding:2px 6px;border-radius:4px;font-size:0.75rem;">REJECTED</span>`;
     }
@@ -1675,7 +2036,7 @@ function renderEventsTable(events) {
       <td><span class="badge-dept">${evt.department || 'ROAD MAINTENANCE'}</span></td>
       <td>${reportBadgeHtml}</td>
       <td><span class="badge-status ${statClass}">${stat}</span></td>
-      <td><button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: var(--color-primary-border); color: var(--color-primary);">View</button></td>
+      <td><button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.74rem; font-weight: 700; border-color: var(--color-primary-border); color: var(--color-primary);">View Details</button></td>
     `;
 
     tr.addEventListener('click', () => {
@@ -2321,6 +2682,19 @@ function setupSidebarNavigation() {
 
   const insightSafetyCard = document.getElementById('insightSafetyCard');
   if (insightSafetyCard) insightSafetyCard.onclick = () => showView('safety');
+
+  // Overview Category Summary Blocks Explore Buttons (Requirement 12)
+  const btnExploreRoads = document.getElementById('btnExploreRoadsSummary');
+  if (btnExploreRoads) btnExploreRoads.onclick = () => showView('roads');
+
+  const btnExploreTraffic = document.getElementById('btnExploreTrafficSummary');
+  if (btnExploreTraffic) btnExploreTraffic.onclick = () => showView('traffic');
+
+  const btnExploreSafety = document.getElementById('btnExploreSafetySummary');
+  if (btnExploreSafety) btnExploreSafety.onclick = () => showView('safety');
+
+  const btnViewAllFeed = document.getElementById('btnViewAllEventsFeed');
+  if (btnViewAllFeed) btnViewAllFeed.onclick = () => showView('events');
 }
 
 function setupMobileSidebar() {
@@ -2686,6 +3060,7 @@ function setupSocketListeners() {
   socket.on('connect', () => {
     if (adminServerDot) adminServerDot.className = 'status-dot active';
     if (adminServerText) adminServerText.textContent = 'SERVER: ONLINE';
+    socket.emit('join-room', { roomId: 'BUS-101', role: 'admin' });
   });
 
   socket.on('disconnect', () => {
@@ -2701,6 +3076,15 @@ function setupSocketListeners() {
       adminDbDot.className = 'status-dot';
       adminDbText.textContent = 'DB: LOCAL';
     }
+  });
+
+  // Real-time Mobile Sensor / Citizen Bus Telemetry Streaming
+  socket.on('citizen-bus-location', (loc) => {
+    handleLiveBusTelemetry(loc);
+  });
+
+  socket.on('gps-update', (loc) => {
+    handleLiveBusTelemetry(loc);
   });
 
   // Dynamic ingestion of real-time vehicle observations
@@ -2949,37 +3333,47 @@ function renderDepartmentBreakdown(byDept) {
 
     if (total === 0) {
       return `
-        <div class="dept-card-real">
+        <div class="dept-card-real ${dept.code}">
           <div class="dept-header-real">
             <span class="dept-title-real">${dept.name}</span>
-            <span class="badge" style="background: var(--admin-surface-subtle); color: var(--admin-text-muted);">0 events</span>
+            <span class="badge dept-badge-zero">0 ACTIVE</span>
           </div>
-          <div class="dept-empty-notice">No active events</div>
+          <div class="dept-empty-notice compact">
+            <svg class="dept-empty-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <span class="dept-empty-title">NO ACTIVE EVENTS</span>
+            <span class="dept-empty-desc">No incidents currently require municipal action.</span>
+          </div>
+          <button type="button" class="btn-subtle" onclick="filterDepartmentFromView('${dept.code}')" style="margin-top: auto; width: 100%; text-align: center;">
+            View Department Log &rarr;
+          </button>
         </div>
       `;
     }
 
     return `
-      <div class="dept-card-real">
+      <div class="dept-card-real ${dept.code}">
         <div class="dept-header-real">
           <span class="dept-title-real">${dept.name}</span>
-          <span class="badge" style="background: #E8EEFB; color: var(--admin-primary); font-weight: 700;">${total} Total</span>
+          <span class="badge dept-badge-active">${total} Total</span>
         </div>
         <div class="dept-status-breakdown">
           <div class="dept-status-box">
             <span class="dept-status-box-val" style="color: #D97706;">${pending}</span>
-            <span class="dept-status-box-lbl">Pending events</span>
+            <span class="dept-status-box-lbl">Pending</span>
           </div>
           <div class="dept-status-box">
-            <span class="dept-status-box-val" style="color: var(--admin-primary);">${sent}</span>
-            <span class="dept-status-box-lbl">Sent events</span>
+            <span class="dept-status-box-val" style="color: var(--primary);">${sent}</span>
+            <span class="dept-status-box-lbl">Dispatched</span>
           </div>
           <div class="dept-status-box">
             <span class="dept-status-box-val" style="color: #059669;">${solved}</span>
-            <span class="dept-status-box-lbl">Solved events</span>
+            <span class="dept-status-box-lbl">Solved</span>
           </div>
         </div>
-        <button type="button" class="btn-subtle" onclick="filterDepartmentFromView('${dept.code}')" style="margin-top: 0.5rem; width: 100%; text-align: center;">
+        <button type="button" class="btn-subtle" onclick="filterDepartmentFromView('${dept.code}')" style="margin-top: auto; width: 100%; text-align: center;">
           View ${dept.name} Incidents &rarr;
         </button>
       </div>
@@ -3496,7 +3890,36 @@ function fitRoadMapBounds() {
 }
 
 function getFilteredRoadEvents() {
-  return getCombinedPresentationEvents().filter(isRoadEvent);
+  const base = getCombinedPresentationEvents().filter(isRoadEvent);
+  if (!currentRoadDefectFilter || currentRoadDefectFilter === 'all') return base;
+  if (currentRoadDefectFilter === 'pothole') {
+    return base.filter(e => (e.problem || e.title || '').toLowerCase().includes('pothole'));
+  }
+  if (currentRoadDefectFilter === 'crack') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('crack') || p.includes('fissure');
+    });
+  }
+  if (currentRoadDefectFilter === 'damage') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('damage') || p.includes('rough') || p.includes('wear') || p.includes('depression') || p.includes('patch');
+    });
+  }
+  if (currentRoadDefectFilter === 'infra') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('divider') || p.includes('sign') || p.includes('infra') || p.includes('curb') || p.includes('barrier');
+    });
+  }
+  if (currentRoadDefectFilter === 'waterlogging') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('water') || p.includes('flood') || p.includes('drain') || p.includes('puddle');
+    });
+  }
+  return base;
 }
 
 function renderRoadsView() {
@@ -3534,21 +3957,7 @@ function renderRoadsView() {
 function renderRoadDefectHeatmap() {
   if (!roadMap) return;
 
-  let roadEvents = getFilteredRoadEvents();
-
-  if (currentRoadDefectFilter === 'pothole') {
-    roadEvents = roadEvents.filter(e => (e.problem || e.title || '').toLowerCase().includes('pothole'));
-  } else if (currentRoadDefectFilter === 'crack') {
-    roadEvents = roadEvents.filter(e => {
-      const p = (e.problem || e.title || '').toLowerCase();
-      return p.includes('crack') || p.includes('damage') || p.includes('fissure');
-    });
-  } else if (currentRoadDefectFilter === 'infra') {
-    roadEvents = roadEvents.filter(e => {
-      const p = (e.problem || e.title || '').toLowerCase();
-      return p.includes('divider') || p.includes('sign') || p.includes('infra');
-    });
-  }
+  const roadEvents = getFilteredRoadEvents();
 
   const validPoints = roadEvents.filter(e => {
     const lat = parseFloat(e.latitude);
@@ -3667,31 +4076,46 @@ function renderRoadsFeed(roadEvents) {
   const emptyState = document.getElementById('roadsFeedEmptyState');
   if (!container) return;
 
-  const eventsToShow = roadEvents.length > 0 ? roadEvents.slice(0, 15) : getCombinedPresentationEvents().filter(isRoadEvent);
+  const eventsToShow = roadEvents.length > 0 ? roadEvents.slice(0, 15) : getFilteredRoadEvents().slice(0, 15);
 
+  if (eventsToShow.length === 0) {
+    if (emptyState) emptyState.style.display = 'flex';
+    container.innerHTML = '';
+    return;
+  }
   if (emptyState) emptyState.style.display = 'none';
 
   container.innerHTML = eventsToShow.map(evt => {
-    const conf = Math.round((evt.confidence || 0.88) * (evt.confidence > 1 ? 1 : 100));
+    const rawConf = evt.confidence_score !== undefined ? evt.confidence_score : (evt.confidence !== undefined ? evt.confidence : 0.90);
+    const confPct = Math.round(rawConf > 1 ? rawConf : rawConf * 100);
+    const isPothole = (evt.problem || evt.title || '').toLowerCase().includes('pothole');
+    const confLabel = isPothole ? `${confPct}% AI CONFIDENCE` : `${confPct}% CONFIDENCE`;
     const timeAgo = formatTimeAgo(evt.created_at || evt.timestamp || Date.now());
-    const demoBadge = evt.is_demo ? `<span class="card-demo-badge" style="position:static;display:inline-block;padding:1px 6px;">DEMO</span>` : '';
+    const isReal = !evt.is_demo;
+    const badgeHtml = isReal 
+      ? `<span class="badge-telemetry real" style="display:inline-block;padding:2px 6px;font-size:0.62rem;">REAL TELEMETRY</span>`
+      : `<span class="card-demo-badge" style="position:static;display:inline-block;padding:2px 6px;font-size:0.62rem;">DEMO</span>`;
     const imgUrl = evt.evidence_image_url || '/assets/demo_evidence/demo_pothole.jpg';
+    const problemName = evt.problem || evt.title || 'Road Defect';
+    const locationName = evt.address ? evt.address.split(',')[0] : 'Hyderabad Corridor';
+    const busName = evt.bus_id || 'BUS-101';
+    const eventId = evt.event_id || evt.id;
 
     return `
-      <div class="feed-event-card" onclick="selectEventById('${evt.event_id || evt.id}', true); showView('overview');" style="cursor: pointer;">
+      <div class="feed-event-card road" onclick="selectEventById('${escapeHtml(eventId)}', false);" style="cursor: pointer;">
         <div class="feed-thumb-col">
-          <img src="${imgUrl}" alt="${escapeHtml(evt.problem || evt.title || 'Road Defect')}" class="feed-thumb-img" onerror="this.src='/assets/demo_evidence/demo_road_damage.jpg'">
+          <img src="${imgUrl}" alt="${escapeHtml(problemName)}" class="feed-thumb-img" onerror="this.src='/assets/demo_evidence/demo_road_damage.jpg'">
         </div>
         <div class="feed-content-col">
           <div class="feed-card-header">
-            <span class="feed-event-title">${escapeHtml(evt.problem || evt.title || 'Road Defect')}</span>
-            <span class="feed-time-text">${timeAgo} ago</span>
+            <span class="feed-event-title">${escapeHtml(problemName)}</span>
+            <span class="badge-status ${confPct >= 85 ? 'verified' : 'pending'}">${confLabel}</span>
           </div>
-          <p class="feed-location-text">${escapeHtml(evt.address || 'Hyderabad Corridor')} &bull; Bus: ${escapeHtml(evt.bus_id || 'BUS-101')}</p>
+          <p class="feed-location-text">${escapeHtml(locationName)} &bull; Bus: <strong>${escapeHtml(busName)}</strong></p>
           <div class="feed-meta-row">
-            ${demoBadge}
-            <span class="badge-status ${conf >= 85 ? 'verified' : 'pending'}">${conf}% AI CONF</span>
-            <button type="button" class="btn-feed-view">VIEW REPORT &rarr;</button>
+            ${badgeHtml}
+            <span class="feed-time-text">${timeAgo} ago</span>
+            <button type="button" class="btn-feed-view" onclick="event.stopPropagation(); selectEventById('${escapeHtml(eventId)}', false);">VIEW REPORT &rarr;</button>
           </div>
         </div>
       </div>
@@ -3724,7 +4148,7 @@ function renderRoadsTable(roadEvents) {
         <td>${escapeHtml(evt.bus_id || 'TS-09-UB-4021')}</td>
         <td><span class="badge-status ${isSolved ? 'reported' : 'pending'}">${escapeHtml(evt.status || 'PENDING')}</span></td>
         <td>
-          <button type="button" class="btn-table-action" onclick="selectEventById('${evt.event_id || evt.id}', true);">Inspect</button>
+          <button type="button" class="btn-table-action" onclick="selectEventById('${evt.event_id || evt.id}', false);">Inspect</button>
         </td>
       </tr>
     `;
@@ -3739,9 +4163,25 @@ function setupRoadControls() {
         group.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentRoadDefectFilter = btn.getAttribute('data-roadfilter') || 'all';
+        const filtered = getFilteredRoadEvents();
         renderRoadDefectHeatmap();
+        renderRoadsFeed(filtered);
+        renderRoadsTable(filtered);
       });
     });
+  }
+
+  const topRefresh = document.getElementById('refreshRoadsBtn');
+  if (topRefresh) {
+    topRefresh.onclick = () => {
+      renderRoadsView();
+      showAdminToast('Road telemetry updated', 'success');
+    };
+  }
+
+  const btnFs = document.getElementById('fullscreenRoadMapBtn');
+  if (btnFs) {
+    btnFs.onclick = () => toggleCardFullscreen('.road-map-card', roadMap);
   }
 }
 
@@ -3993,39 +4433,49 @@ function renderTrafficCorridorsFeed() {
   const container = document.getElementById('trafficCorridorFeed');
   if (!container) return;
 
-  const eventsToShow = getCombinedPresentationEvents().filter(isTrafficEvent).slice(0, 10);
+  const eventsToShow = getCombinedPresentationEvents().filter(isTrafficEvent).slice(0, 12);
+  if (eventsToShow.length === 0) {
+    container.innerHTML = `<div style="padding:2rem;text-align:center;color:#64748B;">No traffic incidents registered.</div>`;
+    return;
+  }
 
   container.innerHTML = eventsToShow.map(evt => {
     const stats = evt.traffic_stats || {
-      cars: evt.cars || evt.car_count || 52,
-      motorcycles: evt.motorcycles || evt.motorcycle_count || 34,
-      buses: evt.buses || evt.bus_count || 12,
-      trucks: evt.trucks || evt.truck_count || 5
+      cars: evt.cars !== undefined ? evt.cars : (evt.car_count || 18),
+      motorcycles: evt.motorcycles !== undefined ? evt.motorcycles : (evt.motorcycle_count || 9),
+      buses: evt.buses !== undefined ? evt.buses : (evt.bus_count || 3),
+      trucks: evt.trucks !== undefined ? evt.trucks : (evt.truck_count || 2)
     };
     const timeAgo = formatTimeAgo(evt.created_at || evt.timestamp || Date.now());
-    const demoBadge = evt.is_demo ? `<span class="card-demo-badge" style="position:static;display:inline-block;padding:1px 6px;">DEMO</span>` : '';
+    const isReal = !evt.is_demo;
+    const badgeHtml = isReal 
+      ? `<span class="badge-telemetry real" style="display:inline-block;padding:2px 6px;font-size:0.62rem;">REAL TELEMETRY</span>`
+      : `<span class="card-demo-badge" style="position:static;display:inline-block;padding:2px 6px;font-size:0.62rem;">DEMO</span>`;
     const imgUrl = evt.evidence_image_url || '/assets/demo_evidence/demo_traffic.jpg';
+    const title = evt.problem || evt.title || 'Heavy Vehicle Density';
+    const loc = evt.address ? evt.address.split(',')[0] : 'Hyderabad Corridor';
+    const eventId = evt.event_id || evt.id;
 
     return `
-      <div class="feed-event-card" onclick="selectEventById('${evt.event_id || evt.id}', true); showView('overview');" style="cursor: pointer;">
+      <div class="feed-event-card traffic" onclick="selectEventById('${escapeHtml(eventId)}', false);" style="cursor: pointer;">
         <div class="feed-thumb-col">
-          <img src="${imgUrl}" alt="${escapeHtml(evt.problem || evt.title || 'Traffic Observation')}" class="feed-thumb-img" onerror="this.src='/assets/demo_evidence/demo_traffic.jpg'">
+          <img src="${imgUrl}" alt="${escapeHtml(title)}" class="feed-thumb-img" onerror="this.src='/assets/demo_evidence/demo_traffic.jpg'">
         </div>
         <div class="feed-content-col">
           <div class="feed-card-header">
-            <span class="feed-event-title">${escapeHtml(evt.problem || evt.title || 'Heavy Vehicle Density')}</span>
+            <span class="feed-event-title">${escapeHtml(title)}</span>
             <span class="feed-time-text">${timeAgo} ago</span>
           </div>
-          <p class="feed-location-text">${escapeHtml(evt.address || 'Hyderabad Corridor')} &bull; Traffic Intelligence</p>
+          <p class="feed-location-text">${escapeHtml(loc)} &bull; Traffic Intelligence</p>
           <div class="traffic-breakdown-mini">
             <span>Cars: <strong>${stats.cars}</strong></span>
-            <span>Bikes: <strong>${stats.motorcycles}</strong></span>
+            <span>Motorcycles: <strong>${stats.motorcycles}</strong></span>
             <span>Buses: <strong>${stats.buses}</strong></span>
             <span>Trucks: <strong>${stats.trucks}</strong></span>
           </div>
-          <div class="feed-meta-row">
-            ${demoBadge}
-            <button type="button" class="btn-feed-view">VIEW REPORT &rarr;</button>
+          <div class="feed-meta-row" style="margin-top:0.4rem;">
+            ${badgeHtml}
+            <button type="button" class="btn-feed-view" onclick="event.stopPropagation(); selectEventById('${escapeHtml(eventId)}', false);">VIEW REPORT &rarr;</button>
           </div>
         </div>
       </div>
@@ -4052,6 +4502,19 @@ function setupTrafficViewControls() {
       currentTrafficViewTimeFilter = timeFilter.value;
       renderTrafficView();
     });
+  }
+
+  const topRefresh = document.getElementById('refreshTrafficBtn');
+  if (topRefresh) {
+    topRefresh.onclick = () => {
+      renderTrafficView();
+      showAdminToast('Traffic intelligence updated', 'success');
+    };
+  }
+
+  const btnFs = document.getElementById('fullscreenTrafficMapBtn');
+  if (btnFs) {
+    btnFs.onclick = () => toggleCardFullscreen('.traffic-map-card', trafficViewMap);
   }
 }
 
@@ -4103,6 +4566,11 @@ function initSafetyMap() {
   if (topRefresh) {
     topRefresh.onclick = () => renderSafetyView();
   }
+
+  const btnFs = document.getElementById('fullscreenSafetyMapBtn');
+  if (btnFs) {
+    btnFs.onclick = () => toggleCardFullscreen('.safety-map-card', safetyMap);
+  }
 }
 
 function fitSafetyMapBounds() {
@@ -4124,7 +4592,39 @@ function fitSafetyMapBounds() {
 }
 
 function getFilteredSafetyEvents() {
-  return getCombinedPresentationEvents().filter(isSafetyEvent);
+  const base = getCombinedPresentationEvents().filter(isSafetyEvent);
+  if (!currentSafetyFilter || currentSafetyFilter === 'all') return base;
+  if (currentSafetyFilter === 'water') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('water') || p.includes('flood') || p.includes('drain');
+    });
+  }
+  if (currentSafetyFilter === 'pedestrian') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('pedestrian') || p.includes('walker');
+    });
+  }
+  if (currentSafetyFilter === 'crossing') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('crossing') || p.includes('zebra');
+    });
+  }
+  if (currentSafetyFilter === 'hazard') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('hazard') || p.includes('debris') || p.includes('obstruction');
+    });
+  }
+  if (currentSafetyFilter === 'danger') {
+    return base.filter(e => {
+      const p = (e.problem || e.title || '').toLowerCase();
+      return p.includes('danger') || p.includes('rash') || p.includes('accident') || p.includes('condition');
+    });
+  }
+  return base;
 }
 
 function renderSafetyView() {
@@ -4282,31 +4782,43 @@ function renderSafetyAlertsFeed(safetyEvents) {
   const emptyState = document.getElementById('safetyFeedEmptyState');
   if (!container) return;
 
-  const eventsToShow = safetyEvents.length > 0 ? safetyEvents.slice(0, 15) : getCombinedPresentationEvents().filter(isSafetyEvent);
+  const eventsToShow = safetyEvents.length > 0 ? safetyEvents.slice(0, 15) : getFilteredSafetyEvents().slice(0, 15);
 
+  if (eventsToShow.length === 0) {
+    if (emptyState) emptyState.style.display = 'flex';
+    container.innerHTML = '';
+    return;
+  }
   if (emptyState) emptyState.style.display = 'none';
 
   container.innerHTML = eventsToShow.map(evt => {
     const risk = (evt.risk_level || evt.priority || 'HIGH').toUpperCase();
     const timeAgo = formatTimeAgo(evt.created_at || evt.timestamp || Date.now());
-    const demoBadge = evt.is_demo ? `<span class="card-demo-badge" style="position:static;display:inline-block;padding:1px 6px;">DEMO</span>` : '';
+    const isReal = !evt.is_demo;
+    const badgeHtml = isReal 
+      ? `<span class="badge-telemetry real" style="display:inline-block;padding:2px 6px;font-size:0.62rem;">REAL TELEMETRY</span>`
+      : `<span class="card-demo-badge" style="position:static;display:inline-block;padding:2px 6px;font-size:0.62rem;">DEMO</span>`;
     const imgUrl = evt.evidence_image_url || '/assets/demo_evidence/demo_waterlogging.jpg';
+    const title = evt.problem || evt.title || 'Safety Hazard';
+    const loc = evt.address ? evt.address.split(',')[0] : 'Jubilee Hills';
+    const busId = evt.bus_id || 'BUS-204';
+    const eventId = evt.event_id || evt.id;
 
     return `
-      <div class="feed-event-card" onclick="selectEventById('${evt.event_id || evt.id}', true); showView('overview');" style="cursor: pointer;">
+      <div class="feed-event-card safety" onclick="selectEventById('${escapeHtml(eventId)}', false);" style="cursor: pointer;">
         <div class="feed-thumb-col">
-          <img src="${imgUrl}" alt="${escapeHtml(evt.problem || evt.title || 'Safety Hazard')}" class="feed-thumb-img" onerror="this.src='/assets/demo_evidence/demo_hazard.jpg'">
+          <img src="${imgUrl}" alt="${escapeHtml(title)}" class="feed-thumb-img" onerror="this.src='/assets/demo_evidence/demo_hazard.jpg'">
         </div>
         <div class="feed-content-col">
           <div class="feed-card-header">
-            <span class="feed-event-title">${escapeHtml(evt.problem || evt.title || 'Safety Hazard')}</span>
-            <span class="feed-time-text">${timeAgo} ago</span>
-          </div>
-          <p class="feed-location-text">${escapeHtml(evt.address || 'Hyderabad Corridor')} &bull; Public Safety</p>
-          <div class="feed-meta-row">
-            ${demoBadge}
+            <span class="feed-event-title">${escapeHtml(title)}</span>
             <span class="badge-status ${risk === 'CRITICAL' ? 'critical' : 'warning'}">${risk} PRIORITY</span>
-            <button type="button" class="btn-feed-view">VIEW REPORT &rarr;</button>
+          </div>
+          <p class="feed-location-text">${escapeHtml(loc)} &bull; Bus: <strong>${escapeHtml(busId)}</strong></p>
+          <div class="feed-meta-row">
+            ${badgeHtml}
+            <span class="feed-time-text">${timeAgo} ago</span>
+            <button type="button" class="btn-feed-view" onclick="event.stopPropagation(); selectEventById('${escapeHtml(eventId)}', false);">VIEW REPORT &rarr;</button>
           </div>
         </div>
       </div>
@@ -4339,7 +4851,7 @@ function renderSafetyTable(safetyEvents) {
         <td>${escapeHtml(evt.bus_id || 'TS-09-UB-4022')}</td>
         <td><span class="badge-status ${isSolved ? 'reported' : 'pending'}">${escapeHtml(evt.status || 'PENDING')}</span></td>
         <td>
-          <button type="button" class="btn-table-action" onclick="selectEventById('${evt.event_id || evt.id}', true);">Inspect</button>
+          <button type="button" class="btn-table-action" onclick="selectEventById('${evt.event_id || evt.id}', false);">Inspect</button>
         </td>
       </tr>
     `;
@@ -4354,9 +4866,25 @@ function setupSafetyControls() {
         group.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentSafetyFilter = btn.getAttribute('data-sfilter') || 'all';
+        const filtered = getFilteredSafetyEvents();
         renderSafetyHeatmap();
+        renderSafetyAlertsFeed(filtered);
+        renderSafetyTable(filtered);
       });
     });
+  }
+
+  const topRefresh = document.getElementById('refreshSafetyBtn');
+  if (topRefresh) {
+    topRefresh.onclick = () => {
+      renderSafetyView();
+      showAdminToast('Public safety data updated', 'success');
+    };
+  }
+
+  const btnFs = document.getElementById('fullscreenSafetyMapBtn');
+  if (btnFs) {
+    btnFs.onclick = () => toggleCardFullscreen('.safety-map-card', safetyMap);
   }
 }
 
