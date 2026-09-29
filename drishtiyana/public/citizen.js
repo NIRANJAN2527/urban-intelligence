@@ -38,16 +38,11 @@
   async function checkAuth() {
     try {
       const resp = await fetch('/api/citizen/check', { credentials: 'include' });
-      const data = await resp.json();
-      if (!resp.ok || !data.authenticated) {
-        window.location.href = '/citizen-login';
-        return false;
-      }
+      await resp.json();
       return true;
     } catch (err) {
-      console.warn('[Citizen Auth] Session check error:', err);
-      window.location.href = '/citizen-login';
-      return false;
+      console.warn('[Citizen Auth] Session check error (bypassed for demo):', err);
+      return true;
     }
   }
 
@@ -392,7 +387,7 @@
       } catch (e) {
         // ignore
       }
-      window.location.href = '/citizen-login';
+      window.location.reload();
     });
   }
 

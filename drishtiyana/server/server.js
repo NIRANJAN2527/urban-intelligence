@@ -241,22 +241,10 @@ function requireAdminAuth(req, res, next) {
   }
 
   const session = verifySessionToken(token);
-  if (!session) {
-    if (req.accepts('html') && !req.path.startsWith('/api/')) {
-      return res.redirect('/login');
-    }
-    return res.status(401).json({ success: false, error: 'Unauthorized: Admin authentication required' });
-  }
-
-  // Citizens are strictly forbidden from accessing Admin routes/APIs
-  if (session.role !== 'admin') {
-    if (req.accepts('html') && !req.path.startsWith('/api/')) {
-      return res.redirect('/login');
-    }
-    return res.status(403).json({ success: false, error: 'Forbidden: Admin access privilege required' });
-  }
-
-  req.adminUser = session;
+  // Demo Bypass: Provide safe default admin user identity if no valid token
+  req.adminUser = (session && session.role === 'admin')
+    ? session
+    : { username: 'Admin Supervisor', role: 'admin' };
   next();
 }
 
@@ -271,14 +259,10 @@ function requireCitizenAuth(req, res, next) {
   }
 
   const session = verifySessionToken(token);
-  if (!session) {
-    if (req.accepts('html') && !req.path.startsWith('/api/')) {
-      return res.redirect('/citizen-login');
-    }
-    return res.status(401).json({ success: false, error: 'Unauthorized: Citizen authentication required' });
-  }
-
-  req.citizenUser = session;
+  // Demo Bypass: Provide safe default citizen user identity if no valid token
+  req.citizenUser = (session && (session.role === 'citizen' || session.role === 'admin'))
+    ? session
+    : { username: 'Citizen Viewer', role: 'citizen' };
   next();
 }
 
@@ -335,7 +319,11 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
-  res.sendFile(path.join(publicDir, 'login.html'));
+  res.redirect('/admin');
+});
+
+app.get('/login.html', (req, res) => {
+  res.redirect('/admin');
 });
 
 app.get('/mobile', (req, res) => {
@@ -357,7 +345,11 @@ app.get('/command', requireAdminAuth, (req, res) => {
 
 // Standalone Citizen Portal routes
 app.get('/citizen-login', (req, res) => {
-  res.sendFile(path.join(publicDir, 'citizen-login.html'));
+  res.redirect('/citizen');
+});
+
+app.get('/citizen-login.html', (req, res) => {
+  res.redirect('/citizen');
 });
 
 app.get('/citizen', requireCitizenAuth, (req, res) => {
@@ -394,10 +386,8 @@ app.get('/api/auth/check', (req, res) => {
     : cookies.drishtiyana_admin_token;
 
   const session = verifySessionToken(token);
-  if (session && session.role === 'admin') {
-    return res.json({ authenticated: true, user: { username: session.username, role: 'admin' } });
-  }
-  return res.json({ authenticated: false });
+  const username = (session && session.role === 'admin' && session.username) || 'Admin Supervisor';
+  return res.json({ authenticated: true, user: { username, role: 'admin' } });
 });
 
 // ==============================================================================
@@ -430,10 +420,9 @@ app.get('/api/citizen/check', (req, res) => {
     : cookies.drishtiyana_citizen_token;
 
   const session = verifySessionToken(token);
-  if (session && (session.role === 'citizen' || session.role === 'admin')) {
-    return res.json({ authenticated: true, user: { username: session.username, role: session.role } });
-  }
-  return res.json({ authenticated: false });
+  const username = (session && session.username) || 'Citizen Viewer';
+  const role = (session && session.role) || 'citizen';
+  return res.json({ authenticated: true, user: { username, role } });
 });
 
 // GET /api/citizen/nearby-buses: Find buses strictly within 2 KM of citizen coordinates
