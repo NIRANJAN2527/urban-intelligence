@@ -16,7 +16,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
-const HTTP_PORT = process.env.HTTP_PORT || 3000;
+const HTTP_PORT = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3001;
 
 // Configurable Admin Credentials (from .env)
@@ -49,6 +49,11 @@ app.use('/uploads', express.static(uploadsDir));
 
 // HTTP -> HTTPS redirect middleware for browser pages (preserves /ca.crt, /ca.pem, static assets, and /mobile)
 app.use((req, res, next) => {
+  // If request is already HTTPS via cloud proxy (Render, Railway, Heroku)
+  if (req.headers['x-forwarded-proto'] === 'https') {
+    return next();
+  }
+
   if (!req.secure && req.socket && req.socket.localPort === HTTP_PORT) {
     const isExempt = req.path === '/ca.crt' ||
                      req.path === '/ca.pem' ||
@@ -63,6 +68,9 @@ app.use((req, res, next) => {
                      req.path.endsWith('.ico') ||
                      req.path.startsWith('/socket.io/');
     if (!isExempt) {
+      if (process.env.NODE_ENV === 'production' || req.headers['x-forwarded-host']) {
+        return next();
+      }
       const hostHeader = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
       return res.redirect(302, `https://${hostHeader}:${HTTPS_PORT}${req.originalUrl}`);
     }
