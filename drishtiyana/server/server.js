@@ -37,6 +37,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 const evidenceDir = path.join(uploadsDir, 'evidence');
+const publicEvidenceDir = path.join(__dirname, '..', 'public', 'evidence');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -44,7 +45,11 @@ if (!fs.existsSync(evidenceDir)) {
   fs.mkdirSync(evidenceDir, { recursive: true });
 }
 
-// Serve uploaded evidence frames
+// Serve uploaded evidence frames from public/evidence and uploads/evidence
+app.use('/uploads/evidence', express.static(publicEvidenceDir));
+app.use('/uploads/evidence', express.static(evidenceDir));
+app.use('/evidence', express.static(publicEvidenceDir));
+app.use('/evidence', express.static(evidenceDir));
 app.use('/uploads', express.static(uploadsDir));
 
 // HTTP -> HTTPS redirect middleware for browser pages (preserves /ca.crt, /ca.pem, static assets, and /mobile)

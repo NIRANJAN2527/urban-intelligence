@@ -42,8 +42,5 @@ urban-intelligence/
 server/data/
 **/server/data/
 **/public/assets/extracted_imgs/
-**/public/evidence/*
-!**/public/evidence/.gitkeep
-
 
 
